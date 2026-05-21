@@ -1,4 +1,6 @@
 
+
+
 # ==============================================================================
 #                               IMPORTS
 # ==============================================================================
@@ -6,11 +8,8 @@
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from crypto.common import (
-
     generate_iv,
-
     validate_aes_key,
-
     generate_aes_key,
 )
 
@@ -20,9 +19,7 @@ from crypto.common import (
 # ==============================================================================
 
 def encrypt_file_chunks(
-
     file_chunks,
-
     aes_key
 ):
 
@@ -39,82 +36,22 @@ def encrypt_file_chunks(
     """
 
 
-    # --------------------------------------------------------------------------
-    #                       VALIDATE AES KEY
-    # --------------------------------------------------------------------------
-
     validate_aes_key(aes_key)
 
-
-    # --------------------------------------------------------------------------
-    #                   CREATE AES-GCM ENCRYPTION OBJECT
-    # --------------------------------------------------------------------------
-
     aesgcm = AESGCM(aes_key)
-
-
-    # --------------------------------------------------------------------------
-    #                   STORE ENCRYPTED CHUNKS
-    # --------------------------------------------------------------------------
 
     encrypted_file_chunks = []
 
 
-    # --------------------------------------------------------------------------
-    #               ENCRYPT EVERY FILE CHUNK USING LOOP
-    # --------------------------------------------------------------------------
 
     for chunk in file_chunks:
+        iv = generate_iv()    #this generates iv for each chunk 
 
+        ciphertext = aesgcm.encrypt(iv,chunk,None,)
 
-        # ----------------------------------------------------------------------
-        #                   GENERATE UNIQUE IV
-        # ----------------------------------------------------------------------
+        encrypted_chunk = (iv + ciphertext )
 
-        iv = generate_iv()
-
-
-        # ----------------------------------------------------------------------
-        #                       ENCRYPT CHUNK
-        # ----------------------------------------------------------------------
-
-        ciphertext = aesgcm.encrypt(
-
-            iv,
-
-            chunk,
-
-            None,
-        )
-
-
-        # ----------------------------------------------------------------------
-        #           FINAL ENCRYPTED CHUNK FORMAT
-        #
-        #               [ IV ][ CIPHERTEXT ]
-        # ----------------------------------------------------------------------
-
-        encrypted_chunk = (
-
-            iv +
-
-            ciphertext
-        )
-
-
-        # ----------------------------------------------------------------------
-        #               STORE ENCRYPTED CHUNK
-        # ----------------------------------------------------------------------
-
-        encrypted_file_chunks.append(
-
-            encrypted_chunk
-        )
-
-
-    # --------------------------------------------------------------------------
-    #               RETURN FULL ENCRYPTED FILE
-    # --------------------------------------------------------------------------
+        encrypted_file_chunks.append(encrypted_chunk)
 
     return encrypted_file_chunks
 
@@ -126,73 +63,31 @@ def encrypt_file_chunks(
 if __name__ == "__main__":
 
 
-    # --------------------------------------------------------------------------
-    #                           IMPORT DECRYPTION
-    # --------------------------------------------------------------------------
-
     from crypto.decrypt import decrypt_file_chunks
 
 
-    # --------------------------------------------------------------------------
-    #                       SAMPLE FILE CHUNKS
-    # --------------------------------------------------------------------------
-
-    file_chunks = [
-
+    file_chunks = [    # this list contains chunk for encryption
         b"Hello",
-
         b"VoidChat",
-
         b"AES Encryption",
-
         b"Chunk Number 4",
     ]
-
-
-    # --------------------------------------------------------------------------
-    #                       GENERATE AES KEY
-    # --------------------------------------------------------------------------
-
-    aes_key = generate_aes_key()
-
-
-    # --------------------------------------------------------------------------
-    #                   PRINT ORIGINAL CHUNKS
-    # --------------------------------------------------------------------------
+    aes_key = generate_aes_key()  # this is the key
 
     print("\n")
     print("=" * 60)
-
     print("ORIGINAL FILE CHUNKS")
-
     print("=" * 60)
 
     for chunk in file_chunks:
-
         print(chunk)
 
+    encrypted_chunks = encrypt_file_chunks(file_chunks,aes_key )
 
-    # --------------------------------------------------------------------------
-    #                       ENCRYPT FILE CHUNKS
-    # --------------------------------------------------------------------------
-
-    encrypted_chunks = encrypt_file_chunks(
-
-        file_chunks,
-
-        aes_key
-    )
-
-
-    # --------------------------------------------------------------------------
-    #                   PRINT ENCRYPTED CHUNKS
-    # --------------------------------------------------------------------------
 
     print("\n")
     print("=" * 60)
-
     print("ENCRYPTED FILE CHUNKS")
-
     print("=" * 60)
 
     for chunk in encrypted_chunks:
@@ -200,37 +95,17 @@ if __name__ == "__main__":
         print(chunk)
 
 
-    # --------------------------------------------------------------------------
-    #                       DECRYPT FILE CHUNKS
-    # --------------------------------------------------------------------------
-
-    decrypted_chunks = decrypt_file_chunks(
-
-        encrypted_chunks,
-
-        aes_key
-    )
-
-
-    # --------------------------------------------------------------------------
-    #                   PRINT DECRYPTED CHUNKS
-    # --------------------------------------------------------------------------
+    decrypted_chunks = decrypt_file_chunks(encrypted_chunks,aes_key)
 
     print("\n")
     print("=" * 60)
-
     print("DECRYPTED FILE CHUNKS")
-
     print("=" * 60)
 
     for chunk in decrypted_chunks:
 
         print(chunk)
 
-
-    # --------------------------------------------------------------------------
-    #                       FINAL VALIDATION
-    # --------------------------------------------------------------------------
 
     print("\n")
     print("=" * 60)

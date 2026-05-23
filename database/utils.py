@@ -12,7 +12,7 @@ from pathlib import Path
 # HELPER FUNCTIONS
 # ==============================================================================
 
-def generate_uuid():
+def generate_uuid():  ## this will be given to you by protocol and netwrokign layers
 
     """
     PURPOSE :
@@ -25,7 +25,7 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
-def current_timestamp():
+def current_timestamp(): ## this will be embedded in the message dict form protocol
 
     """
     PURPOSE :
@@ -38,7 +38,7 @@ def current_timestamp():
     return datetime.utcnow().isoformat()
 
 
-def create_data_directory(path: Path):
+def create_data_directory(path: Path): # ensures db path?
 
     """
     PURPOSE :
@@ -56,7 +56,7 @@ def create_data_directory(path: Path):
     return path
 
 
-def build_chunk_path(base_dir: Path, file_id: str, chunk_index: int):
+def build_chunk_path(base_dir: Path, file_id: str, chunk_index: int): # no need this
 
     """
     PURPOSE :

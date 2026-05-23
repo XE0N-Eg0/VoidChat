@@ -44,14 +44,15 @@ def get_connection():
 # DATA MODELS
 # ==============================================================================
 
-@dataclass
+@dataclass 
 class User:
-    user_id: str
+    user_id: str #change this to peer_id
     username: str
-    public_key: Optional[str] = None
+    public_key: Optional[str] = None #this will be uuid given by me/or other
     ip_address: Optional[str] = None
     last_seen: Optional[str] = None
     status: Optional[str] = None
+    #port ?
 
 
 @dataclass
@@ -262,6 +263,8 @@ def add_user(connection: sqlite3.Connection, user: User):
     connection.commit()
 
 
+#create one function that fetches the user data and returns as dict
+
 def get_user_by_id(connection: sqlite3.Connection, user_id: str):
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -280,6 +283,7 @@ def update_user_status(connection: sqlite3.Connection, user_id: str, status: str
     )
     connection.commit()
 
+#link the table with primary / differy key to get the meessage of a particular user
 
 def add_conversation(connection: sqlite3.Connection, conversation: Conversation):
     cursor = connection.cursor()
@@ -301,6 +305,7 @@ def add_conversation(connection: sqlite3.Connection, conversation: Conversation)
     )
     connection.commit()
 
+#??
 
 def add_conversation_participant(
     connection: sqlite3.Connection,
@@ -371,6 +376,7 @@ def add_message(connection: sqlite3.Connection, message: Message):
     )
     connection.commit()
 
+##??
 
 def get_messages_for_conversation(connection: sqlite3.Connection, conversation_id: str):
     cursor = connection.cursor()
@@ -411,7 +417,7 @@ def add_file_metadata(connection: sqlite3.Connection, file_meta: FileMetadata):
     )
     connection.commit()
 
-
+## i dont need this
 def add_file_chunk(connection: sqlite3.Connection, chunk: FileChunk):
     cursor = connection.cursor()
     cursor.execute(
@@ -434,7 +440,7 @@ def add_file_chunk(connection: sqlite3.Connection, chunk: FileChunk):
     )
     connection.commit()
 
-
+## ?? i dont need this
 def mark_file_chunk_received(connection: sqlite3.Connection, chunk_id: str):
     cursor = connection.cursor()
     cursor.execute(

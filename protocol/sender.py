@@ -48,15 +48,16 @@ def create_message(
 
         "sender": sender,
 
+        # Machine timestamp
         "unix_timestamp": time.time(),
 
+        # Human readable timestamp
         "timestamp": time.strftime(
             "%Y-%m-%d %H:%M:%S"
         ),
 
         "payload": text
     }
-
 
 def serialize_message(
     msg: dict
@@ -108,6 +109,7 @@ def chat_chunking(
         chunks.append(packet)
 
     return chunks
+
 # ========================================
 #           FILE FUNCTIONS
 # ========================================
@@ -132,7 +134,6 @@ def create_file_packet(
     return {
 
         "type": "file",
-
         "file_id": str(
             uuid.uuid4()
         ),
@@ -205,9 +206,11 @@ def file_chunking(
 
         chunks.append(packet)
     return chunks
+
 # ========================================
 #              DEMO TEST
 # ========================================
+
 def main():
 
     # ====================================
@@ -215,9 +218,7 @@ def main():
     # ====================================
 
     msg = create_message(
-
         text="hi, i am sender",
-
         sender="Partha"
     )
 
@@ -235,9 +236,8 @@ def main():
     print(serialized)
 
     # Chunk chat message
-    packets = chunking(
-        serialized,
-        20
+    packets = chat_chunking(
+        serialized
     )
 
     print("\n========== CHAT CHUNKS ==========")
@@ -270,7 +270,6 @@ def main():
     file_packet = create_file_packet(
 
         file_path=file_path,
-
         sender="Partha"
     )
 
@@ -299,14 +298,12 @@ def main():
 
     # Print first 3 chunks only
     for packet in file_packets[:3]:
-
         print(packet)
 
     print(
         f"\n[INFO] Total File Chunks: "
         f"{len(file_packets)}"
     )
-
 
 # ========================================
 #               ENTRY

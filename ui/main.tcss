@@ -99,3 +99,98 @@ Footer {
     background: #0d061a;
     color: #c084fc;
 }
+/* ui/main.tcss */
+
+#home_split_layout {
+    width: 100%;
+    height: 100%;
+}
+
+/* Allocate 35 character columns for your sidebar */
+#sidebar_panel {
+    width: 35;
+    height: 100%;
+    background: $panel;
+    border-right: tall $primary;
+    padding: 1;
+}
+
+#sidebar_title {
+    text-align: center;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#peer_list_view {
+    background: transparent;
+    height: 100%;
+}
+
+/* The primary window gets remaining screen space filling layout */
+#workspace_panel {
+    width: 1fr;
+    height: 100%;
+    padding: 2;
+}
+
+#workspace_title {
+    text-style: bold;
+    margin-bottom: 1;
+    color: $accent;
+}
+
+
+#chat_main_layout {
+    width: 100%;
+    height: 100%;
+    padding: 1;
+}
+
+#chat_status_title {
+    background: $panel;
+    color: $accent;
+    text-style: bold;
+    padding: 0 1;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#message_log_container {
+    width: 100%;
+    height: 1fr; /* Takes up all available middle space */
+    background: $surface;
+    border: tall $primary;
+    padding: 1;
+    margin-bottom: 1;
+    overflow-y: scroll; /* Enables scrolling for long message streams */
+}
+
+.system_msg {
+    color: $text-muted;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.user_msg {
+    color: $success;
+    margin-bottom: 1;
+}
+
+#chat_input_row {
+    height: 3; /* Matches the exact structural height of a standard Input widget */
+    width: 100%;
+}
+
+#chat_msg_input {
+    width: 1fr; /* Takes up all room except what the button uses */
+    margin-right: 1;
+}
+
+#chat_send_button {
+    width: 12; /* Locked width for clear styling alignment boundary markers */
+    height: 100%;
+}
+

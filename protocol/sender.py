@@ -20,7 +20,7 @@ from protocol.common import serialize_packet
 # =========== CONFIG ======================
 
 # Chat message chunk size
-MSG_CHUNK_SIZE = 4096
+MSG_CHUNK_SIZE = 4096         #4 KB
 
 # File transfer chunk size
 FILE_CHUNK_SIZE = 262144      # 256 KB
@@ -29,16 +29,13 @@ FILE_CHUNK_SIZE = 262144      # 256 KB
 #           MESSAGE FUNCTIONS
 # ========================================
 
-def create_message(
-    text: str,
-    sender: str
-) -> dict:
+def create_message(text: str,sender: str) -> dict:
+
     """
     Purpose:
         Creates a chat message packet
     """
-
-    return {
+    message = {
 
         "type": "chat",
 
@@ -59,9 +56,9 @@ def create_message(
         "payload": text
     }
 
-def serialize_message(
-    msg: dict
-) -> bytes:
+    return message
+
+def serialize_message(msg: dict) -> bytes:
     """
     Purpose:
         Converts message dictionary into bytes
@@ -79,10 +76,8 @@ def serialize_message(
 #           CHAT CHUNKING
 # ========================================
 
-def chat_chunking(
-    data: bytes,
-    chunk_size: int = MSG_CHUNK_SIZE
-) -> list:
+def chat_chunking(data: bytes,chunk_size: int = MSG_CHUNK_SIZE) -> list:
+
     """
     Purpose:
         Splits serialized message into chunks
@@ -113,11 +108,8 @@ def chat_chunking(
 # ========================================
 #           FILE FUNCTIONS
 # ========================================
+def create_file_packet( file_path: str, sender: str) -> dict:
 
-def create_file_packet(
-    file_path: str,
-    sender: str
-) -> dict:
     """
     Purpose:
         Creates file metadata packet
@@ -159,9 +151,8 @@ def create_file_packet(
     }
 
 
-def read_file(
-    file_path: str
-) -> bytes:
+def read_file(file_path: str) -> bytes:
+
     """
     Purpose:
         Reads file as bytes
@@ -177,10 +168,8 @@ def read_file(
     return data
 
 
-def file_chunking(
-    file_data: bytes,
-    chunk_size: int = FILE_CHUNK_SIZE
-) -> list:
+def file_chunking(file_data: bytes, chunk_size: int = FILE_CHUNK_SIZE ) -> list:
+   
     """
     Purpose:
         Splits large file into chunks
@@ -268,7 +257,6 @@ def main():
 
     # Create file metadata packet
     file_packet = create_file_packet(
-
         file_path=file_path,
         sender="Partha"
     )

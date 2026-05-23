@@ -36,23 +36,11 @@ def create_message(text: str,sender: str) -> dict:
         Creates a chat message packet
     """
     message = {
-
         "type": "chat",
-
-        "message_id": str(
-            uuid.uuid4()
-        ),
-
+        "message_id": str(uuid.uuid4()),
         "sender": sender,
-
-        # Machine timestamp
-        "unix_timestamp": time.time(),
-
-        # Human readable timestamp
-        "timestamp": time.strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
-
+        "unix_timestamp": time.time(), # Machine timestamp
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "payload": text
     }
 
@@ -63,10 +51,7 @@ def serialize_message(msg: dict) -> bytes:
     Purpose:
         Converts message dictionary into bytes
     """
-
-    json_data = json.dumps(
-        msg
-    )
+    json_data = json.dumps(msg)
 
     byte_data = json_data.encode()
 
@@ -85,9 +70,7 @@ def chat_chunking(data: bytes,chunk_size: int = MSG_CHUNK_SIZE) -> list:
 
     chunks = []
 
-    total_chunks = (
-        len(data) + chunk_size - 1
-    ) // chunk_size
+    total_chunks = (len(data) + chunk_size - 1) // chunk_size
 
     for index in range(total_chunks):
         start = index * chunk_size
@@ -114,14 +97,8 @@ def create_file_packet( file_path: str, sender: str) -> dict:
     Purpose:
         Creates file metadata packet
     """
-
-    file_size = os.path.getsize(
-        file_path
-    )
-
-    file_name = os.path.basename(
-        file_path
-    )
+    file_size = os.path.getsize(file_path)
+    file_name = os.path.basename(file_path)
 
     return {
 

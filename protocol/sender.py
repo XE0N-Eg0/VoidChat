@@ -157,9 +157,7 @@ def main():
     print(msg)
 
     # Serialize message
-    serialized = serialize_message(
-        msg
-    )
+    serialized = serialize_message(msg)
     print("\n========== SERIALIZED ==========")
 
     print(serialized)

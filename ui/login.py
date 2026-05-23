@@ -1,20 +1,10 @@
-# ==============================================================================
-#                               IMPORTS
-# ==============================================================================
-
+# ui/login.py
 from textual.screen import Screen
-from textual.containers import (
-    Container,
-    Vertical,
-    Horizontal,
-)
-from textual.widgets import (
-    Header,
-    Footer,
-    Static,
-    Input,
-    Button,
-)
+from textual.containers import Container, Vertical, Horizontal
+from textual.widgets import Header, Footer, Static, Input, Button
+
+# Import the tab container screen
+from ui.main_layout import MainLayoutScreen
 
 class LoginScreen(Screen):
     def compose(self):
@@ -44,15 +34,12 @@ class LoginScreen(Screen):
                         placeholder="IP ADDRESS (e.g. 127.0.0.1)", 
                         id="ip_input"
                     ),
-
                     Input(
                         placeholder="PORT", 
                         id="port_input"
                     ),
-
                     id="network_row"
                 ),
-
                 Button(
                     "LOGIN",
                     id="connect_button"
@@ -61,43 +48,18 @@ class LoginScreen(Screen):
             ),
             id="main_container"
         )
-
-
-        # ----------------------------------------------------------------------
-        #                               FOOTER
-        # ----------------------------------------------------------------------
-
         yield Footer()
 
-
     def on_button_pressed(self, event):
-
         if event.button.id == "connect_button":
-
-
-            # ------------------------------------------------------------------
-            #                   GET USER INPUT VALUES
-            # ------------------------------------------------------------------
-
-            username = self.query_one(
-
-                "#username_input"
-            ).value
-
-            ip = self.query_one(
-
-                "#ip_input"
-            ).value
-
-            port = self.query_one(
-                "#port_input"
-            ).value
-
-            # ------------------------------------------------------------------
-            #                       SHOW NOTIFICATION
-            # ------------------------------------------------------------------
+            username = self.query_one("#username_input").value
+            ip = self.query_one("#ip_input").value
+            port = self.query_one("#port_input").value
 
             self.notify(
                 f"Connecting {username} to {ip}:{port}",
                 timeout=3
             )
+
+            # Switch completely away from login over to your main tab structure
+            self.app.switch_screen(MainLayoutScreen())

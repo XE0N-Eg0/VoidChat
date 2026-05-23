@@ -18,7 +18,7 @@ from protocol.common import serialize_packet
 """
 # =========== CONFIG ================
 
-CHUNK_SIZE = 1024
+CHUNK_SIZE = 4096  # update chunk size 1024 ----> 4096 
 
 # ========================================
 #           CORE FUNCTIONS

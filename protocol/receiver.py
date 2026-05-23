@@ -2,21 +2,17 @@
 #              receiver.py
 # ========================================
 # =========== SYS IMPORTS ================
-
 import json
 import time
-
 # =========== CONFIG =====================
 
 PACKET_TYPE_CHAT = "chat"
 PACKET_TYPE_CHAT_CHUNK = "chat_chunk"
 
 CHUNK_TIMEOUT = 60
-
 # ========================================
 #           GLOBAL STORAGE
 # ========================================
-
 """
 Structure:
 chunk_storage = {
@@ -29,13 +25,10 @@ chunk_storage = {
     }
 }
 """
-
 chunk_storage = {}
-
 # ========================================
 #           CORE FUNCTIONS
 # ========================================
-
 def deserialize_message(data: bytes) -> dict:
     """
     Converts bytes back to dictionary
@@ -52,9 +45,7 @@ def validate_packet(packet: dict) -> bool:
 
     for field in required_fields:
         if field not in packet:
-            print(
-                f"[ERROR] Missing Field: {field}"
-            )
+            print(f"[ERROR] Missing Field: {field}")
             return False
     return True
 
@@ -69,13 +60,8 @@ def cleanup_expired_chunks():
         chunk_storage.items()
     ):
         received_at = storage["received_at"]
-        if (
-            current_time - received_at
-            > CHUNK_TIMEOUT
-        ):
-            expired_messages.append(
-                message_id
-            )
+        if (current_time - received_at > CHUNK_TIMEOUT):
+            expired_messages.append(message_id)
 
     for message_id in expired_messages:
         del chunk_storage[message_id]
@@ -103,7 +89,6 @@ def process_packet(packet: dict):
         payload = packet.get("payload","")
         timestamp = packet.get("timestamp","Unknown")
         print("\n[CHAT MESSAGE]")
-
         print(f"Sender    : {sender}")
         print(f"Message   : {payload}")
         print(f"Timestamp : {timestamp}")
@@ -111,9 +96,7 @@ def process_packet(packet: dict):
     # CHUNK PACKET
     # ==============================
 
-    elif packet_type == (
-        PACKET_TYPE_CHAT_CHUNK
-    ):
+    elif packet_type == (PACKET_TYPE_CHAT_CHUNK):
         process_chunk(packet)
     else:
         print("[WARNING] Unknown Packet")
@@ -128,22 +111,13 @@ def process_chunk(packet: dict):
 
     for field in required_fields:
         if field not in packet:
-            print(
-                f"[ERROR] Missing "
-                f"Chunk Field: {field}"
-            )
+            print(f"[ERROR] Missing "
+                f"Chunk Field: {field}")
             return
 
     message_id = packet["message_id"]
-
-    total_chunks = packet[
-        "total_chunks"
-    ]
-
-    chunk_index = packet[
-        "chunk_index"
-    ]
-
+    total_chunks = packet["total_chunks"]
+    chunk_index = packet["chunk_index"]
     payload = packet["payload"]
 
     # ==============================
@@ -152,10 +126,7 @@ def process_chunk(packet: dict):
 
     if chunk_index >= total_chunks:
 
-        print(
-            "[ERROR] Invalid "
-            "Chunk Index"
-        )
+        print("[ERROR] Invalid ""Chunk Index")
 
         return
 

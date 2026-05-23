@@ -3,10 +3,26 @@ from textual.screen import Screen
 from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Input, Button
 
-# Import the tab container screen
-from ui.main_layout import MainLayoutScreen
+# ==========================================
+# PLACEHOLDER FUNCTIONS: 
+# Replace the returns here with your actual 
+# socket/networking logic.
+# ==========================================
+def get_local_ip():
+    # TODO: add your socket gethostbyname logic here
+    return "192.168.1.42" 
+
+def get_node_port():
+    # TODO: add your port assignment logic here
+    return "8080"
+# ==========================================
 
 class LoginScreen(Screen):
+    """The polished, input-restricted login screen."""
+    
+    # Ensure this points to where you save the CSS file
+    CSS_PATH = "../styles/login.tcss"
+
     def compose(self):
         yield Header(show_clock=True)
         yield Container(
@@ -14,35 +30,33 @@ class LoginScreen(Screen):
                 r"""
 ██╗   ██╗ ██████╗ ██╗██████╗  ██████╗██╗  ██╗ █████╗ ████████╗
 ██║   ██║██╔═══██╗██║██╔══██╗██╔════╝██║  ██║██╔══██╗╚══██╔══╝
-██║   ██║██║   ██║██║██║  ██║██║     ███████║███████║   ██║  
-╚██╗ ██╔╝██║   ██║██║██║  ██║██║     ██╔══██║██╔══██║   ██║  
- ╚████╔╝ ╚██████╔╝██║██████╔╝╚██████╗██║  ██║██║  ██║   ██║  
-  ╚═══╝   ╚═════╝ ╚═╝╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝  
+██║   ██║██║   ██║██║██║  ██║██║     ███████║███████║   ██║   
+╚██╗ ██╔╝██║   ██║██║██║  ██║██║     ██╔══██║██╔══██║   ██║   
+ ╚████╔╝ ╚██████╔╝██║██████╔╝╚██████╗██║  ██║██║  ██║   ██║   
+  ╚═══╝   ╚═════╝ ╚═╝╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   
                 """,
                 id="logo"
             ),
 
             Vertical(
-                Static("── USER PROFILE ──", id="form_header"),
+                Static("── USER PROFILE ──", classes="form_header"),
                 Input(
                     placeholder="ENTER UNIQUE USERNAME",
                     id="username_input"
                 ),
-                Static("── NODE DESTINATION ──", id="form_header_2"),
+                
+                Static("── NODE DESTINATION ──", classes="form_header"),
+                # Replaced Inputs with Static displays for read-only network info
                 Horizontal(
-                    Input(
-                        placeholder="IP ADDRESS (e.g. 127.0.0.1)", 
-                        id="ip_input"
-                    ),
-                    Input(
-                        placeholder="PORT", 
-                        id="port_input"
-                    ),
+                    Static(f"IP: {get_local_ip()}", classes="network_info"),
+                    Static(f"PORT: {get_node_port()}", classes="network_info"),
                     id="network_row"
                 ),
+                
                 Button(
-                    "LOGIN",
-                    id="connect_button"
+                    "INITIALIZE CONNECTION",
+                    id="connect_button",
+                    variant="success"
                 ),
                 id="login_form"
             ),
@@ -52,14 +66,22 @@ class LoginScreen(Screen):
 
     def on_button_pressed(self, event):
         if event.button.id == "connect_button":
-            username = self.query_one("#username_input").value
-            ip = self.query_one("#ip_input").value
-            port = self.query_one("#port_input").value
+            # Grab the username, default to "Anonymous" if left blank
+            username = self.query_one("#username_input").value or "Anonymous"
+            ip = get_local_ip()
+            port = get_node_port()
 
+            # Fire off a UI notification
             self.notify(
                 f"Connecting {username} to {ip}:{port}",
                 timeout=3
             )
 
-            # Switch completely away from login over to your main tab structure
-            self.app.switch_screen(MainLayoutScreen())
+            # Assuming your app.py registers your main layout as "home"
+            self.app.switch_screen("home")
+            
+    def on_input_submitted(self, event):
+        """Allows the user to just hit ENTER in the username field to login."""
+        if event.input.id == "username_input":
+            # Trigger the button press programmatically
+            self.query_one("#connect_button").press()

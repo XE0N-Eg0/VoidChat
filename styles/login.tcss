@@ -1,0 +1,68 @@
+/* styles/login.tcss */
+
+LoginScreen {
+    align: center middle;
+    background: #1E1E2E;
+}
+
+#main_container {
+    width: 75;
+    height: auto;
+    align: center middle;
+}
+
+#logo {
+    text-align: center;
+    color: #88C0D0;
+    text-style: bold;
+    margin-bottom: 2;
+}
+
+#login_form {
+    background: #2A2A3C;
+    border: round #5E81AC;
+    padding: 2 4;
+    height: auto;
+    align: center middle;
+}
+
+.form_header {
+    text-align: center;
+    color: #A3BE8C;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#username_input {
+    width: 100%;
+    border: tall #5E81AC;
+    background: #1E1E2E;
+    text-align: center;
+}
+
+#network_row {
+    height: auto;
+    width: 100%;
+    align: center middle;
+    margin-bottom: 2;
+}
+
+.network_info {
+    padding: 1 2;
+    background: #1E1E2E;
+    color: #ECEFF4;
+    border: solid #4C566A;
+    margin: 0 1;
+}
+
+#connect_button {
+    width: 100%;
+    text-style: bold;
+    margin-top: 1;
+}
+
+#connect_button:hover {
+    background: #8FBCBB;
+}

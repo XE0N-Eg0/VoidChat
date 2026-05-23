@@ -3,20 +3,16 @@
 # ========================================
 
 # =========== SYS IMPORTS ================
-
 import json
 import time
 import uuid
 import os
-
 # =========== LOCAL IMPORTS ================
 """
 Local project imports will go here
-
 Example:
 from protocol.common import serialize_packet
 """
-
 # =========== CONFIG ======================
 
 # Chat message chunk size
@@ -52,9 +48,7 @@ def serialize_message(msg: dict) -> bytes:
         Converts message dictionary into bytes
     """
     json_data = json.dumps(msg)
-
     byte_data = json_data.encode()
-
     return byte_data
 
 # ========================================
@@ -67,9 +61,7 @@ def chat_chunking(data: bytes,chunk_size: int = MSG_CHUNK_SIZE) -> list:
     Purpose:
         Splits serialized message into chunks
     """
-
     chunks = []
-
     total_chunks = (len(data) + chunk_size - 1) // chunk_size
 
     for index in range(total_chunks):
@@ -77,7 +69,6 @@ def chat_chunking(data: bytes,chunk_size: int = MSG_CHUNK_SIZE) -> list:
         end = start + chunk_size
         chunk = data[start:end]
         packet = {
-
             "type": "chat_chunk",
             "chunk_index": index,
             "total_chunks": total_chunks,
@@ -87,7 +78,6 @@ def chat_chunking(data: bytes,chunk_size: int = MSG_CHUNK_SIZE) -> list:
         chunks.append(packet)
 
     return chunks
-
 # ========================================
 #           FILE FUNCTIONS
 # ========================================
@@ -103,10 +93,7 @@ def create_file_packet( file_path: str, sender: str) -> dict:
     return {
 
         "type": "file",
-        "file_id": str(
-            uuid.uuid4()
-        ),
-
+        "file_id": str(uuid.uuid4()),
         "sender": sender,
 
         # Full file path
@@ -135,15 +122,9 @@ def read_file(file_path: str) -> bytes:
         Reads file as bytes
     """
 
-    with open(
-        file_path,
-        "rb"
-    ) as file:
-
+    with open(file_path,"rb") as file:
         data = file.read()
-
     return data
-
 
 def file_chunking(file_data: bytes, chunk_size: int = FILE_CHUNK_SIZE ) -> list:
    
@@ -151,7 +132,6 @@ def file_chunking(file_data: bytes, chunk_size: int = FILE_CHUNK_SIZE ) -> list:
     Purpose:
         Splits large file into chunks
     """
-
     chunks = []
 
     total_chunks = (
@@ -163,16 +143,13 @@ def file_chunking(file_data: bytes, chunk_size: int = FILE_CHUNK_SIZE ) -> list:
         end = start + chunk_size
         chunk = file_data[start:end]
         packet = {
-
             "type": "file_chunk",
             "chunk_index": index,
             "total_chunks": total_chunks,
             "payload": chunk
         }
-
         chunks.append(packet)
     return chunks
-
 # ========================================
 #              DEMO TEST
 # ========================================
@@ -189,14 +166,12 @@ def main():
     )
 
     print("\n========== MESSAGE ==========")
-
     print(msg)
 
     # Serialize message
     serialized = serialize_message(
         msg
     )
-
     print("\n========== SERIALIZED ==========")
 
     print(serialized)
@@ -209,7 +184,6 @@ def main():
     print("\n========== CHAT CHUNKS ==========")
 
     for packet in packets:
-
         print(packet)
 
     # ====================================
@@ -243,9 +217,7 @@ def main():
     print(file_packet)
 
     # Read file
-    file_data = read_file(
-        file_path
-    )
+    file_data = read_file(file_path)
 
     print("\n========== FILE SIZE ==========")
 
@@ -255,9 +227,7 @@ def main():
     )
 
     # Chunk file
-    file_packets = file_chunking(
-        file_data
-    )
+    file_packets = file_chunking(file_data)
 
     print("\n========== FILE CHUNKS ==========")
 
@@ -269,15 +239,10 @@ def main():
         f"\n[INFO] Total File Chunks: "
         f"{len(file_packets)}"
     )
-
 # ========================================
 #               ENTRY
 # ========================================
 
 if __name__ == "__main__":
-
-    print(
-        "\n[INFO] Running sender.py"
-    )
-
+    print("\n[INFO] Running sender.py")
     main()

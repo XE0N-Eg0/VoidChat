@@ -1,7 +1,6 @@
 # ========================================
 #              receiver.py
 # ========================================
-
 # =========== SYS IMPORTS ================
 import json
 # =========== CONFIG ================
@@ -15,9 +14,7 @@ chunk_storage = {}
 # ========================================
 #           CORE FUNCTIONS
 # ========================================
-def deserialize_message(
-    data: bytes
-) -> dict:
+def deserialize_message(data: bytes) -> dict:
     """
     Converts bytes back to dictionary
     """
@@ -26,9 +23,7 @@ def deserialize_message(
 
     return json.loads(json_data)
 
-def process_packet(
-    packet: dict
-):
+def process_packet(packet: dict):
     """
     Processes incoming packet
     """
@@ -42,9 +37,7 @@ def process_packet(
     if packet_type == PACKET_TYPE_CHAT:
 
         sender = packet["sender"]
-
         payload = packet["payload"]
-
         timestamp = packet["timestamp"]
 
         print("\n[CHAT MESSAGE]")
@@ -65,18 +58,14 @@ def process_packet(
         print("[WARNING] Unknown Packet")
 
 
-def process_chunk(
-    packet: dict
-):
+def process_chunk(packet: dict):
     """
     Stores chunk packet and reconstructs
     full message when complete
     """
 
     total_chunks = packet["total_chunks"]
-
     chunk_index = packet["chunk_index"]
-
     payload = packet["payload"]
 
     # Convert string representation back to bytes

@@ -1,6 +1,6 @@
-# ========================================
-#              receiver.py
-# ========================================
+#protocol/reciver.py
+
+
 # =========== SYS IMPORTS ================
 import json
 import time
@@ -10,6 +10,7 @@ PACKET_TYPE_CHAT = "chat"
 PACKET_TYPE_CHAT_CHUNK = "chat_chunk"
 
 CHUNK_TIMEOUT = 60
+
 # ========================================
 #           GLOBAL STORAGE
 # ========================================
@@ -26,6 +27,7 @@ chunk_storage = {
 }
 """
 chunk_storage = {}
+
 # ========================================
 #           CORE FUNCTIONS
 # ========================================

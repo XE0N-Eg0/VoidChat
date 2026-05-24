@@ -89,61 +89,44 @@ def chunk_encrypted_message(
         chunks.append(packet)
 
     return chunks
-
+# ========================================
+#         FILE STREAMING CLASS
 # ========================================
 #           FILE FUNCTIONS
 # ========================================
 
-def create_file_packet(file_path: str, sender: str) -> dict:
-    """
-    Purpose:
-        Creates file metadata packet for network transfer.
-    """
-
-    file_size = os.path.getsize(file_path)
-    file_name = os.path.basename(file_path)
-
-    metadata = {
-        "type": "file",
-        "file_id": str(uuid.uuid4()),
-        "sender": sender,
-
-        # SAFE METADATA ONLY
-        "file_name": file_name,
-        "file_size": file_size,
-
-        # TIMESTAMPS
-        "unix_timestamp": time.time(),  #jekono ekta de 
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S") #i prefer this
-    }
-
-    return metadata
-
-# ========================================
-#         FILE STREAMING CLASS
-# ========================================
 class FileStreamer:
+
     @staticmethod
-    def serialize_metadata(file_path: str) -> bytes:  # this fucntions is doing same things as create_file_packet(file_path: str, sender: str) -> dict:
+    def create_file_packet(file_path: str,sender: str) -> dict:
         """
-        Extracts and serializes ONLY
-        the metadata of the file.
-
-        Sent BEFORE actual file chunks.
+        Purpose:
+            Creates file metadata packet
+            for network transfer.
         """
 
-        filename = os.path.basename(file_path)
-        filesize = os.path.getsize(file_path)
+        file_size = os.path.getsize(file_path)
+        file_name = os.path.basename(file_path)
 
         metadata = {
-            "type": "file_transfer_init",   #either do the file metadata here then serealize that which is better or change it to accept(dict) -> bytes
+            "type": "file_transfer_init",
             "file_id": str(uuid.uuid4()),
-            "filename": filename,
-            "filesize": filesize
+            "sender": sender,
+            # SAFE METADATA ONLY
+            "file_name": file_name,
+            "file_size": file_size,
+            # TIMESTAMPS
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
+        return metadata
 
+    @staticmethod
+    def serialize_metadata(metadata: dict) -> bytes:
+        """
+        Serializes metadata packet
+        into bytes.
+        """
         serialized_metadata = json.dumps(metadata).encode("utf-8")
-
         return serialized_metadata
 
     @staticmethod
@@ -155,6 +138,7 @@ class FileStreamer:
         Default:
             64 KB chunks
         """
+
         with open(file_path, "rb") as f:
             while True:
                 chunk = f.read(chunk_size)
@@ -165,57 +149,60 @@ class FileStreamer:
 # ========================================
 #              DEMO TEST
 # ========================================
+
+def main():
+
+    # ====================================
+    # CHAT MESSAGE DEMO
+    # ====================================
+
+    msg = create_chat_packet(text="hi, i am sender",sender="Partha")
+
+    print("\n========== MESSAGE ==========")
+    print(msg)
+
+    serialized = serialize_message(msg)
+
+    print("\n========== SERIALIZED ==========")
+    print(serialized)
+
+    packets = chunk_encrypted_message(serialized)
+
+    print("\n========== CHAT CHUNKS ==========")
+
+    for packet in packets:
+        print(packet)
+
+    # ====================================
+    # FILE DEMO
+    # ====================================
+
+    file_path = input("\nEnter file path: ")
+
+    if not os.path.exists(file_path):
+        print("\n[ERROR] File not found")
+        return
+
+    file_packet = FileStreamer.create_file_packet(file_path=file_path,sender="Partha")
+
+    print("\n========== FILE PACKET ==========")
+    print(file_packet)
+
+    print("\n========== FILE SIZE ==========")
+    print(os.path.getsize(file_path), "bytes")
+
+    print("\n========== STREAMING DEMO ==========")
+
+    metadata = FileStreamer.serialize_metadata(file_packet)
+
+    print("\nMetadata:")
+    print(metadata)
+
+    print("\nStreaming chunks:")
+
+    for index, chunk in enumerate(FileStreamer.chunk_generator(file_path)):
+        print(f"Chunk {index} -> {len(chunk)} bytes")
+        if index >= 2:
+            break
 if __name__ == "__main__":
-
-    def main():
-        # ====================================
-        # CHAT MESSAGE DEMO
-        # ====================================
-        msg = create_chat_packet(text="hi, i am sender", sender="Partha")
-
-        print("\n========== MESSAGE ==========")
-        print(msg)
-
-        serialized = serialize_message(msg)
-
-        print("\n========== SERIALIZED ==========")
-        print(serialized)
-
-        packets = chunk_encrypted_message(serialized)
-
-        print("\n========== CHAT CHUNKS ==========")
-        for packet in packets:
-            print(packet)
-
-        # ====================================
-        # FILE DEMO
-        # ====================================
-        file_path = input("\nEnter file path: ")
-
-        if not os.path.exists(file_path):
-            print("\n[ERROR] File not found")
-            return
-
-        file_packet = create_file_packet(file_path=file_path, sender="Partha")
-
-        print("\n========== FILE PACKET ==========")
-        print(file_packet)
-
-        print("\n========== FILE SIZE ==========")
-        print(os.path.getsize(file_path), "bytes")
-
-        print("\n========== STREAMING DEMO ==========")
-
-        metadata = FileStreamer.serialize_metadata(file_path)
-
-        print("\nMetadata:")
-        print(metadata)
-
-        print("\nStreaming chunks:")
-
-        for index, chunk in enumerate(FileStreamer.chunk_generator(file_path)):
-            print(f"Chunk {index} -> {len(chunk)} bytes")
-            if index >= 2:
-                break
-
-        main()
+    main()

@@ -102,8 +102,9 @@ class HomeScreen(Screen):
                     ):
 
                         yield Static(
-                            "[bold cyan]Available Peers[/bold cyan]"
-                        )
+                   "[bold cyan]Available Peers[/bold cyan]",
+                    id="peers-heading"
+                      )
 
                         yield PeerCard(
                             "Raghunath Das",
@@ -176,7 +177,8 @@ class HomeScreen(Screen):
                     ):
 
                         yield Static(
-                            "[bold cyan]Contacts[/bold cyan]"
+                            "[bold cyan]Contacts[/bold cyan]",
+                            id="contacts-heading"
                         )
 
                         yield ContactCard(

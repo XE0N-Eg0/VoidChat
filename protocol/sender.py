@@ -1,6 +1,4 @@
-# ========================================
-#               sender.py
-# ========================================
+#protocol/sender.py
 
 # =========== SYS IMPORTS ================
 import json
@@ -9,13 +7,6 @@ import uuid
 import os
 from typing import Generator
 
-# =========== LOCAL IMPORTS ================
-"""
-Local project imports will go here
-
-Example:
-from protocol.common import serialize_packet
-"""
 
 # =========== CONFIG ======================
 
@@ -56,11 +47,17 @@ def serialize_message(msg: dict) -> bytes:
     byte_data = json_data.encode("utf-8")
 
     return byte_data
+
+
 # ========================================
 #           CHAT CHUNKING
 # ========================================
 
-def chunk_encrypted_message(encrypted_blob: bytes,message_id: str = None,chunk_size: int = MSG_CHUNK_SIZE,protocol_version: str = "1.0") -> list:
+def chunk_encrypted_message(
+        encrypted_blob: bytes,
+        message_id: str = None,
+        chunk_size: int = MSG_CHUNK_SIZE,
+        protocol_version: str = "1.0") -> list:
     """
     Purpose:
         Splits encrypted message into protocol-safe chunks.
@@ -106,7 +103,7 @@ def create_file_packet(file_path: str, sender: str) -> dict:
     file_size = os.path.getsize(file_path)
     file_name = os.path.basename(file_path)
 
-    return {
+    metadata = {
         "type": "file",
         "file_id": str(uuid.uuid4()),
         "sender": sender,
@@ -116,16 +113,18 @@ def create_file_packet(file_path: str, sender: str) -> dict:
         "file_size": file_size,
 
         # TIMESTAMPS
-        "unix_timestamp": time.time(),
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        "unix_timestamp": time.time(),  #jekono ekta de 
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S") #i prefer this
     }
+
+    return metadata
 
 # ========================================
 #         FILE STREAMING CLASS
 # ========================================
 class FileStreamer:
     @staticmethod
-    def serialize_metadata(file_path: str) -> bytes:
+    def serialize_metadata(file_path: str) -> bytes:  # this fucntions is doing same things as create_file_packet(file_path: str, sender: str) -> dict:
         """
         Extracts and serializes ONLY
         the metadata of the file.
@@ -137,13 +136,15 @@ class FileStreamer:
         filesize = os.path.getsize(file_path)
 
         metadata = {
-            "type": "file_transfer_init",
+            "type": "file_transfer_init",   #either do the file metadata here then serealize that which is better or change it to accept(dict) -> bytes
             "file_id": str(uuid.uuid4()),
             "filename": filename,
             "filesize": filesize
         }
 
-        return json.dumps(metadata).encode("utf-8")
+        serialized_metadata = json.dumps(metadata).encode("utf-8")
+
+        return serialized_metadata
 
     @staticmethod
     def chunk_generator(file_path: str,chunk_size: int = 65536) -> Generator[bytes, None, None]:
@@ -164,54 +165,57 @@ class FileStreamer:
 # ========================================
 #              DEMO TEST
 # ========================================
+if __name__ == "__main__":
 
-def main():
-    # ====================================
-    # CHAT MESSAGE DEMO
-    # ====================================
-    msg = create_chat_packet(text="hi, i am sender", sender="Partha")
+    def main():
+        # ====================================
+        # CHAT MESSAGE DEMO
+        # ====================================
+        msg = create_chat_packet(text="hi, i am sender", sender="Partha")
 
-    print("\n========== MESSAGE ==========")
-    print(msg)
+        print("\n========== MESSAGE ==========")
+        print(msg)
 
-    serialized = serialize_message(msg)
+        serialized = serialize_message(msg)
 
-    print("\n========== SERIALIZED ==========")
-    print(serialized)
+        print("\n========== SERIALIZED ==========")
+        print(serialized)
 
-    packets = chunk_encrypted_message(serialized)
+        packets = chunk_encrypted_message(serialized)
 
-    print("\n========== CHAT CHUNKS ==========")
-    for packet in packets:
-        print(packet)
+        print("\n========== CHAT CHUNKS ==========")
+        for packet in packets:
+            print(packet)
 
-    # ====================================
-    # FILE DEMO
-    # ====================================
-    file_path = input("\nEnter file path: ")
+        # ====================================
+        # FILE DEMO
+        # ====================================
+        file_path = input("\nEnter file path: ")
 
-    if not os.path.exists(file_path):
-        print("\n[ERROR] File not found")
-        return
+        if not os.path.exists(file_path):
+            print("\n[ERROR] File not found")
+            return
 
-    file_packet = create_file_packet(file_path=file_path, sender="Partha")
+        file_packet = create_file_packet(file_path=file_path, sender="Partha")
 
-    print("\n========== FILE PACKET ==========")
-    print(file_packet)
+        print("\n========== FILE PACKET ==========")
+        print(file_packet)
 
-    print("\n========== FILE SIZE ==========")
-    print(os.path.getsize(file_path), "bytes")
+        print("\n========== FILE SIZE ==========")
+        print(os.path.getsize(file_path), "bytes")
 
-    print("\n========== STREAMING DEMO ==========")
+        print("\n========== STREAMING DEMO ==========")
 
-    metadata = FileStreamer.serialize_metadata(file_path)
+        metadata = FileStreamer.serialize_metadata(file_path)
 
-    print("\nMetadata:")
-    print(metadata)
+        print("\nMetadata:")
+        print(metadata)
 
-    print("\nStreaming chunks:")
+        print("\nStreaming chunks:")
 
-    for index, chunk in enumerate(FileStreamer.chunk_generator(file_path)):
-        print(f"Chunk {index} -> {len(chunk)} bytes")
-        if index >= 2:
-            break
+        for index, chunk in enumerate(FileStreamer.chunk_generator(file_path)):
+            print(f"Chunk {index} -> {len(chunk)} bytes")
+            if index >= 2:
+                break
+
+        main()

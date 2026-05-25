@@ -1,254 +1,504 @@
-#protocol/reciver.py
-
+# ========================================
+#              receiver.py
+# ========================================
 
 # =========== SYS IMPORTS ================
+import os
 import json
 import time
-# =========== CONFIG =====================
+from typing import Dict, Iterable
 
-PACKET_TYPE_CHAT = "chat"
-PACKET_TYPE_CHAT_CHUNK = "chat_chunk"
+# ========================================
+#                CONFIG
+# ========================================
 
 CHUNK_TIMEOUT = 60
+
+FLAG_FINAL_CHUNK = 0x01
+FLAG_CHAT_DATA = 0x02
+FLAG_FILE_METADATA = 0x04
+FLAG_FILE_DATA = 0x08
 
 # ========================================
 #           GLOBAL STORAGE
 # ========================================
+
+chat_buffers = {}
+
 """
-Structure:
-chunk_storage = {
-    message_id: {
-        "total_chunks": int,
-        "received_at": float,
-        "chunks": {
-            chunk_index: bytes
-        }
+chat_buffers = {
+    packet_id: {
+        "chunks": {},
+        "final_sequence": int | None,
+        "received_count": int,
+        "created_at": float,
     }
 }
 """
-chunk_storage = {}
+
+file_streams = {}
+
+"""
+file_streams = {
+    packet_id: {
+        "expected_sequence": 0,
+        "pending_chunks": {},
+        "final_sequence": int | None,
+        "created_at": float,
+        "metadata": dict | None,
+    }
+}
+"""
 
 # ========================================
-#           CORE FUNCTIONS
+#              DECRYPT
 # ========================================
-def deserialize_message(data: bytes) -> dict:
-    """
-    Converts bytes back to dictionary
-    """
-    json_data = data.decode()
-    return json.loads(json_data)
 
-
-def validate_packet(packet: dict) -> bool:
+def decrypt(data: bytes) -> bytes:
     """
-    Validates incoming packet
-    """
-    required_fields = ["type"]
-
-    for field in required_fields:
-        if field not in packet:
-            print(f"[ERROR] Missing Field: {field}")
-            return False
-    return True
-
-def cleanup_expired_chunks():
-    """
-    Removes expired incomplete messages
+    Replace with real decryption.
     """
 
-    current_time = time.time()
-    expired_messages = []
-    for message_id, storage in (
-        chunk_storage.items()
-    ):
-        received_at = storage["received_at"]
-        if (current_time - received_at > CHUNK_TIMEOUT):
-            expired_messages.append(message_id)
+    return data
 
-    for message_id in expired_messages:
-        del chunk_storage[message_id]
 
-        print(
-            f"[INFO] Removed Expired "
-            f"Message: {message_id}"
-        )
+# ========================================
+#        DESERIALIZE CHAT MESSAGE
+# ========================================
 
-def process_packet(packet: dict):
+def deserialize_chat_message(
+    serialized_message: bytes
+) -> dict:
+
+    json_data = serialized_message.decode(
+        "utf-8"
+    )
+
+    message_dict = json.loads(
+        json_data
+    )
+
+    return message_dict
+
+
+# ========================================
+#      DESERIALIZE FILE METADATA
+# ========================================
+
+def deserialize_file_metadata(
+    serialized_metadata: bytes
+) -> dict:
+
+    json_data = serialized_metadata.decode(
+        "utf-8"
+    )
+
+    metadata_dict = json.loads(
+        json_data
+    )
+
+    return metadata_dict
+
+
+# ========================================
+#        EXTRACT FILE METADATA
+# ========================================
+
+def extract_file_metadata(
+    metadata_packet: dict
+) -> dict:
+
+    return {
+        "file_name": metadata_packet.get(
+            "file_name"
+        ),
+
+        "file_size": metadata_packet.get(
+            "file_size"
+        ),
+    }
+
+
+# ========================================
+#         RECEIVE CHAT FRAME
+# ========================================
+
+def receive_chat_frame(
+    frame: dict
+):
+
     """
-    Processes incoming packet
+    INPUT:
+    {
+        peer_ip,
+        packet_id,
+        sequence,
+        final,
+        payload
+    }
+
+    OUTPUT:
+        None OR complete encrypted blob
     """
 
-    if not validate_packet(packet):
-        return
+    packet_id = frame["packet_id"]
+    sequence = frame["sequence"]
+    final = frame["final"]
+    payload = frame["payload"]
 
-    packet_type = packet["type"]
-    # ==============================
-    # CHAT MESSAGE
-    # ==============================
-    if packet_type == PACKET_TYPE_CHAT:
+    # CREATE BUFFER
+    if packet_id not in chat_buffers:
 
-        sender = packet.get("sender","Unknown")
-        payload = packet.get("payload","")
-        timestamp = packet.get("timestamp","Unknown")
-        print("\n[CHAT MESSAGE]")
-        print(f"Sender    : {sender}")
-        print(f"Message   : {payload}")
-        print(f"Timestamp : {timestamp}")
-    # ==============================
-    # CHUNK PACKET
-    # ==============================
-
-    elif packet_type == (PACKET_TYPE_CHAT_CHUNK):
-        process_chunk(packet)
-    else:
-        print("[WARNING] Unknown Packet")
-
-
-def process_chunk(packet: dict):
-    """
-    Stores chunk packet and reconstructs
-    full message when complete
-    """
-    required_fields = ["message_id","total_chunks","chunk_index","payload"]
-
-    for field in required_fields:
-        if field not in packet:
-            print(f"[ERROR] Missing "
-                f"Chunk Field: {field}")
-            return
-
-    message_id = packet["message_id"]
-    total_chunks = packet["total_chunks"]
-    chunk_index = packet["chunk_index"]
-    payload = packet["payload"]
-
-    # ==============================
-    # VALIDATION
-    # ==============================
-
-    if chunk_index >= total_chunks:
-
-        print("[ERROR] Invalid ""Chunk Index")
-
-        return
-
-    # ==============================
-    # STRING → BYTES
-    # ==============================
-
-    if isinstance(payload, str):
-
-        payload = payload.encode()
-
-    # ==============================
-    # INITIALIZE STORAGE
-    # ==============================
-
-    if message_id not in (
-        chunk_storage
-    ):
-
-        chunk_storage[message_id] = {
-            "total_chunks":
-                total_chunks,
-            "received_at":
-                time.time(),
-            "chunks": {}
+        chat_buffers[packet_id] = {
+            "chunks": {},
+            "final_sequence": None,
+            "received_count": 0,
+            "created_at": time.time(),
         }
 
-    # ==============================
+    buffer_data = chat_buffers[
+        packet_id
+    ]
+
     # STORE CHUNK
-    # ==============================
+    if sequence not in buffer_data["chunks"]:
 
-    chunk_storage[
-        message_id
-    ]["chunks"][
-        chunk_index
-    ] = payload
+        buffer_data["chunks"][
+            sequence
+        ] = payload
 
-    print(
+        buffer_data[
+            "received_count"
+        ] += 1
 
-        f"[INFO] Received Chunk "
-        f"{chunk_index + 1}"
-        f"/{total_chunks}"
-    )
-    # ==============================
+    # STORE FINAL SEQUENCE
+    if final:
+
+        buffer_data[
+            "final_sequence"
+        ] = sequence
+
     # CHECK COMPLETION
-    # ==============================
-    received_chunks = len(
+    final_sequence = buffer_data[
+        "final_sequence"
+    ]
 
-        chunk_storage[
-            message_id
-        ]["chunks"]
+    if final_sequence is None:
+        return None
+
+    expected_chunks = (
+        final_sequence + 1
     )
-    if received_chunks == total_chunks:
 
-        reconstruct_message(
-            message_id
-        )
-def reconstruct_message(message_id: str):
-    """
-    Rebuilds original serialized message
-    """
+    if (
+        buffer_data["received_count"]
+        == expected_chunks
+    ):
 
-    storage = chunk_storage[message_id]
-
-    chunks = storage["chunks"]
-    ordered_chunks = []
-
-    for index in sorted(chunks.keys()):
-        ordered_chunks.append(chunks[index])
-
-    merged_data = b"".join(ordered_chunks)
-
-    try:
-
-        message = (
-            deserialize_message(
-                merged_data
+        encrypted_blob = (
+            reconstruct_chat_message(
+                packet_id
             )
         )
 
-        print(
-            "\n[INFO] Message "
-            "Reconstructed"
-        )
+        # CLEANUP
+        del chat_buffers[packet_id]
 
-        process_packet(message)
+        return encrypted_blob
 
-    except Exception as error:
+    return None
 
-        print(
 
-            f"[ERROR] "
-            f"Reconstruction Failed: "
-            f"{error}"
-
-        )
-    finally:
-
-        # Cleanup storage
-        del chunk_storage[
-            message_id
-        ]
 # ========================================
-#              DEMO TEST
+#      RECONSTRUCT CHAT MESSAGE
 # ========================================
 
-def main():
+def reconstruct_chat_message(
+    packet_id: str
+) -> bytes:
+
     """
-    Demo receiver test
+    OUTPUT:
+        encrypted_blob: bytes
     """
-    print(
-        "[INFO] Receiver Ready"
+
+    buffer_data = chat_buffers[
+        packet_id
+    ]
+
+    chunks = buffer_data["chunks"]
+
+    ordered = []
+
+    for seq in sorted(chunks):
+
+        ordered.append(
+            chunks[seq]
+        )
+
+    encrypted_blob = b"".join(
+        ordered
     )
 
-    while True:
-        cleanup_expired_chunks()
-        time.sleep(5)
+    return encrypted_blob
 
 
-if __name__ == "__main__":
+# ========================================
+#        PROCESS CHAT MESSAGE
+# ========================================
 
-    print("[INFO] Running receiver.py")
-    main()
+def process_chat_message(
+    encrypted_blob: bytes
+) -> dict:
+
+    # DECRYPT
+    serialized_message = decrypt(
+        encrypted_blob
+    )
+
+    # DESERIALIZE
+    message_dict = (
+        deserialize_chat_message(
+            serialized_message
+        )
+    )
+
+    return message_dict
+
+
+# ========================================
+#      RECEIVE FILE METADATA FRAME
+# ========================================
+
+def receive_file_metadata_frame(
+    frame: dict
+) -> dict:
+
+    """
+    FLOW
+
+    receive frame
+    → detect FILE_METADATA flag
+    → decrypt
+    → deserialize
+    → initialize session
+    """
+
+    packet_id = frame["packet_id"]
+
+    encrypted_metadata = frame[
+        "payload"
+    ]
+
+    # DECRYPT
+    serialized_metadata = decrypt(
+        encrypted_metadata
+    )
+
+    # DESERIALIZE
+    metadata_packet = (
+        deserialize_file_metadata(
+            serialized_metadata
+        )
+    )
+
+    # EXTRACT
+    metadata = extract_file_metadata(
+        metadata_packet
+    )
+
+    # INITIALIZE STREAM
+    file_streams[packet_id] = {
+        "expected_sequence": 0,
+        "pending_chunks": {},
+        "final_sequence": None,
+        "created_at": time.time(),
+        "metadata": metadata,
+    }
+
+    return metadata
+
+
+# ========================================
+#         RECEIVE FILE FRAME
+# ========================================
+
+def receive_file_frame(
+    frame: dict
+) -> Iterable[bytes]:
+
+    """
+    INPUT:
+    {
+        packet_id,
+        sequence,
+        final,
+        payload
+    }
+
+    OUTPUT:
+        yields encrypted chunk
+    """
+
+    packet_id = frame["packet_id"]
+    sequence = frame["sequence"]
+    final = frame["final"]
+    payload = frame["payload"]
+
+    if packet_id not in file_streams:
+        return
+
+    stream = file_streams[
+        packet_id
+    ]
+
+    # STORE PENDING CHUNK
+    stream["pending_chunks"][
+        sequence
+    ] = payload
+
+    # STORE FINAL SEQUENCE
+    if final:
+
+        stream[
+            "final_sequence"
+        ] = sequence
+
+    # RELEASE IN ORDER
+    while (
+        stream["expected_sequence"]
+        in stream["pending_chunks"]
+    ):
+
+        expected_sequence = stream[
+            "expected_sequence"
+        ]
+
+        encrypted_chunk = (
+            stream["pending_chunks"].pop(
+                expected_sequence
+            )
+        )
+
+        stream[
+            "expected_sequence"
+        ] += 1
+
+        yield encrypted_chunk
+
+    # CLEANUP
+    final_sequence = stream[
+        "final_sequence"
+    ]
+
+    if (
+        final_sequence is not None
+        and
+        stream["expected_sequence"]
+        > final_sequence
+    ):
+
+        del file_streams[packet_id]
+
+
+# ========================================
+#      PROCESS FILE CHUNK STREAM
+# ========================================
+
+def process_file_chunk_stream(
+    encrypted_chunks: Iterable[bytes]
+) -> Iterable[bytes]:
+
+    for encrypted_chunk in encrypted_chunks:
+
+        decrypted_chunk = decrypt(
+            encrypted_chunk
+        )
+
+        yield decrypted_chunk
+
+
+# ========================================
+#        WRITE STREAM TO FILE
+# ========================================
+
+def write_stream_to_file(
+    decrypted_chunks: Iterable[bytes],
+    output_path: str,
+) -> str:
+
+    """
+    INPUT:
+        decrypted chunks
+
+    OUTPUT:
+        final file path
+    """
+
+    with open(
+        output_path,
+        "ab"
+    ) as file_handle:
+
+        for chunk in decrypted_chunks:
+
+            file_handle.write(
+                chunk
+            )
+
+    return output_path
+
+
+# ========================================
+#         CLEANUP OLD BUFFERS
+# ========================================
+
+def cleanup_expired_buffers():
+
+    current_time = time.time()
+
+    # CHAT CLEANUP
+    expired_chat_packets = []
+
+    for (
+        packet_id,
+        buffer_data
+    ) in chat_buffers.items():
+
+        age = (
+            current_time
+            - buffer_data["created_at"]
+        )
+
+        if age > CHUNK_TIMEOUT:
+
+            expired_chat_packets.append(
+                packet_id
+            )
+
+    for packet_id in expired_chat_packets:
+
+        del chat_buffers[packet_id]
+
+    # FILE CLEANUP
+    expired_file_packets = []
+
+    for (
+        packet_id,
+        stream
+    ) in file_streams.items():
+
+        age = (
+            current_time
+            - stream["created_at"]
+        )
+
+        if age > CHUNK_TIMEOUT:
+
+            expired_file_packets.append(
+                packet_id
+            )
+
+    for packet_id in expired_file_packets:
+
+        del file_streams[packet_id]

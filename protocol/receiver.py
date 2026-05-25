@@ -66,47 +66,30 @@ def decrypt(data: bytes) -> bytes:
 #        DESERIALIZE CHAT MESSAGE
 # ========================================
 
-def deserialize_chat_message(
-    serialized_message: bytes
-) -> dict:
+def deserialize_chat_message(serialized_message: bytes) -> dict:
 
-    json_data = serialized_message.decode(
-        "utf-8"
-    )
-
+    json_data = serialized_message.decode("utf-8")
     message_dict = json.loads(
         json_data
     )
-
     return message_dict
-
 
 # ========================================
 #      DESERIALIZE FILE METADATA
 # ========================================
 
-def deserialize_file_metadata(
-    serialized_metadata: bytes
-) -> dict:
+def deserialize_file_metadata(serialized_metadata: bytes) -> dict:
 
-    json_data = serialized_metadata.decode(
-        "utf-8"
-    )
-
-    metadata_dict = json.loads(
-        json_data
-    )
+    json_data = serialized_metadata.decode("utf-8")
+    metadata_dict = json.loads(json_data)
 
     return metadata_dict
-
 
 # ========================================
 #        EXTRACT FILE METADATA
 # ========================================
 
-def extract_file_metadata(
-    metadata_packet: dict
-) -> dict:
+def extract_file_metadata(metadata_packet: dict) -> dict:
 
     return {
         "file_name": metadata_packet.get(
@@ -118,14 +101,11 @@ def extract_file_metadata(
         ),
     }
 
-
 # ========================================
 #         RECEIVE CHAT FRAME
 # ========================================
 
-def receive_chat_frame(
-    frame: dict
-):
+def receive_chat_frame(frame: dict):
 
     """
     INPUT:
@@ -156,9 +136,7 @@ def receive_chat_frame(
             "created_at": time.time(),
         }
 
-    buffer_data = chat_buffers[
-        packet_id
-    ]
+    buffer_data = chat_buffers[packet_id]
 
     # STORE CHUNK
     if sequence not in buffer_data["chunks"]:
@@ -200,7 +178,6 @@ def receive_chat_frame(
                 packet_id
             )
         )
-
         # CLEANUP
         del chat_buffers[packet_id]
 
@@ -208,53 +185,35 @@ def receive_chat_frame(
 
     return None
 
-
 # ========================================
 #      RECONSTRUCT CHAT MESSAGE
 # ========================================
 
-def reconstruct_chat_message(
-    packet_id: str
-) -> bytes:
+def reconstruct_chat_message(packet_id: str) -> bytes:
 
     """
     OUTPUT:
         encrypted_blob: bytes
     """
 
-    buffer_data = chat_buffers[
-        packet_id
-    ]
-
+    buffer_data = chat_buffers[packet_id]
     chunks = buffer_data["chunks"]
-
     ordered = []
-
     for seq in sorted(chunks):
 
-        ordered.append(
-            chunks[seq]
-        )
+        ordered.append(chunks[seq])
 
-    encrypted_blob = b"".join(
-        ordered
-    )
-
+    encrypted_blob = b"".join(ordered)
     return encrypted_blob
-
 
 # ========================================
 #        PROCESS CHAT MESSAGE
 # ========================================
 
-def process_chat_message(
-    encrypted_blob: bytes
-) -> dict:
+def process_chat_message(encrypted_blob: bytes) -> dict:
 
     # DECRYPT
-    serialized_message = decrypt(
-        encrypted_blob
-    )
+    serialized_message = decrypt(encrypted_blob)
 
     # DESERIALIZE
     message_dict = (
@@ -262,17 +221,13 @@ def process_chat_message(
             serialized_message
         )
     )
-
     return message_dict
-
 
 # ========================================
 #      RECEIVE FILE METADATA FRAME
 # ========================================
 
-def receive_file_metadata_frame(
-    frame: dict
-) -> dict:
+def receive_file_metadata_frame(frame: dict) -> dict:
 
     """
     FLOW
@@ -286,26 +241,16 @@ def receive_file_metadata_frame(
 
     packet_id = frame["packet_id"]
 
-    encrypted_metadata = frame[
-        "payload"
-    ]
+    encrypted_metadata = frame["payload"]
 
     # DECRYPT
-    serialized_metadata = decrypt(
-        encrypted_metadata
-    )
+    serialized_metadata = decrypt(encrypted_metadata)
 
     # DESERIALIZE
-    metadata_packet = (
-        deserialize_file_metadata(
-            serialized_metadata
-        )
-    )
+    metadata_packet = (deserialize_file_metadata(serialized_metadata))
 
     # EXTRACT
-    metadata = extract_file_metadata(
-        metadata_packet
-    )
+    metadata = extract_file_metadata(metadata_packet)
 
     # INITIALIZE STREAM
     file_streams[packet_id] = {
@@ -318,14 +263,11 @@ def receive_file_metadata_frame(
 
     return metadata
 
-
 # ========================================
 #         RECEIVE FILE FRAME
 # ========================================
 
-def receive_file_frame(
-    frame: dict
-) -> Iterable[bytes]:
+def receive_file_frame(frame: dict) -> Iterable[bytes]:
 
     """
     INPUT:
@@ -348,21 +290,14 @@ def receive_file_frame(
     if packet_id not in file_streams:
         return
 
-    stream = file_streams[
-        packet_id
-    ]
+    stream = file_streams[packet_id]
 
     # STORE PENDING CHUNK
-    stream["pending_chunks"][
-        sequence
-    ] = payload
+    stream["pending_chunks"][sequence] = payload
 
     # STORE FINAL SEQUENCE
     if final:
-
-        stream[
-            "final_sequence"
-        ] = sequence
+        stream["final_sequence"] = sequence
 
     # RELEASE IN ORDER
     while (
@@ -370,9 +305,7 @@ def receive_file_frame(
         in stream["pending_chunks"]
     ):
 
-        expected_sequence = stream[
-            "expected_sequence"
-        ]
+        expected_sequence = stream["expected_sequence"]
 
         encrypted_chunk = (
             stream["pending_chunks"].pop(
@@ -380,16 +313,12 @@ def receive_file_frame(
             )
         )
 
-        stream[
-            "expected_sequence"
-        ] += 1
+        stream["expected_sequence"] += 1
 
         yield encrypted_chunk
 
     # CLEANUP
-    final_sequence = stream[
-        "final_sequence"
-    ]
+    final_sequence = stream["final_sequence"]
 
     if (
         final_sequence is not None
@@ -400,32 +329,24 @@ def receive_file_frame(
 
         del file_streams[packet_id]
 
-
 # ========================================
 #      PROCESS FILE CHUNK STREAM
 # ========================================
 
-def process_file_chunk_stream(
-    encrypted_chunks: Iterable[bytes]
-) -> Iterable[bytes]:
+def process_file_chunk_stream(encrypted_chunks: Iterable[bytes]) -> Iterable[bytes]:
 
     for encrypted_chunk in encrypted_chunks:
 
         decrypted_chunk = decrypt(
             encrypted_chunk
         )
-
         yield decrypted_chunk
-
 
 # ========================================
 #        WRITE STREAM TO FILE
 # ========================================
 
-def write_stream_to_file(
-    decrypted_chunks: Iterable[bytes],
-    output_path: str,
-) -> str:
+def write_stream_to_file(decrypted_chunks: Iterable[bytes],output_path: str,) -> str:
 
     """
     INPUT:
@@ -435,19 +356,10 @@ def write_stream_to_file(
         final file path
     """
 
-    with open(
-        output_path,
-        "ab"
-    ) as file_handle:
-
+    with open(output_path,"ab") as file_handle:
         for chunk in decrypted_chunks:
-
-            file_handle.write(
-                chunk
-            )
-
+            file_handle.write(chunk)
     return output_path
-
 
 # ========================================
 #         CLEANUP OLD BUFFERS
@@ -495,10 +407,7 @@ def cleanup_expired_buffers():
 
         if age > CHUNK_TIMEOUT:
 
-            expired_file_packets.append(
-                packet_id
-            )
+            expired_file_packets.append(packet_id)
 
     for packet_id in expired_file_packets:
-
         del file_streams[packet_id]

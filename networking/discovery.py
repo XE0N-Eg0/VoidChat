@@ -1,3 +1,4 @@
+#protocol/discovery.py
 
 # ================ SYS IMPORTS ===========================
 import socket
@@ -18,7 +19,8 @@ from zeroconf import (
 # =========================================================
 
 SERVICE_TYPE = "_voidchat._tcp.local."
-DISCOVERY_PORT = 5000
+
+DISCOVERY_PORT = 5000 #This will be fetched from setting later
 
 PEER_TIMEOUT = 15
 
@@ -146,10 +148,10 @@ class VoidChatListener(ServiceListener):
 # =========================================================
 
 class DiscoveryService:
-    def __init__(self, username):
+    def __init__(self, username): #(this will eventually take UUID, USERNAME)
         self.username = username
 
-        self.peer_id = str(uuid.uuid4())[:8]
+        self.peer_id = str(uuid.uuid4())[:8] # from settings
 
         self.local_ip = self.get_local_ip()
 
@@ -212,11 +214,12 @@ class DiscoveryService:
     def start(self):
         if self.running:
             return
-
-        print(f"\n[INFO] Starting discovery...")
-        print(f"[INFO] Username : {self.username}")
-        print(f"[INFO] Peer ID  : {self.peer_id}")
-        print(f"[INFO] Local IP : {self.local_ip}")
+        
+        #debug 
+        # print(f"\n[INFO] Starting discovery...")
+        # print(f"[INFO] Username : {self.username}")
+        # print(f"[INFO] Peer ID  : {self.peer_id}")
+        # print(f"[INFO] Local IP : {self.local_ip}")
 
         self.zeroconf.register_service(
             self.service_info
@@ -238,8 +241,9 @@ class DiscoveryService:
     def stop(self):
         if not self.running:
             return
-
-        print("\n[INFO] Stopping discovery...")
+        
+        #debug
+        # print("\n[INFO] Stopping discovery...")
 
         self.zeroconf.unregister_service(
             self.service_info

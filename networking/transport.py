@@ -1,44 +1,32 @@
 # transport.py
 
-# 
+# ================= RESPONSIBILITIES ======================
+# 1. Frame outgoing payloads (Unified Packetized Dictionary method)
+# 2. Send framed payloads
+# 3. Receive framed payloads
+# 4. Parse frame headers
+# 5. Emit raw frames matching upper-layer specifications
+# 6. Differentiate chunk_index 0 (Metadata chunk) for files
 # =========================================================
-# TRANSPORT LAYER
-# =========================================================
-# Responsibilities:
-# 1. Frame outgoing packets
-# 2. Send framed chunks over TCP
-# 3. Receive framed chunks
-# 4. Reassemble messages
-# 5. Emit completed payloads
-#
-# NOTE:
 
-# It ONLY:
-# - transports bytes
-# - frames chunks
-# - reassembles messages
-
-
-# ================= SYS IMPORTS ===========================
 import struct
 import threading
 import uuid
-from collections import defaultdict
-from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Tuple, Optional
 
-# ================= LOCAL IMPORTS =========================
-from networking.connection import ConnectionManager
+# Enums are imported directly to interact with your connection layer boundaries safely
+from networking.connection import ConnectionManager, ConnectionType
 
 
 # =========================================================
-# CONFIG
+# CONFIG & PROTOCOL CONSTANTS
 # =========================================================
 
-CHUNK_SIZE = 4096
 FRAME_VERSION = 1
+
+# Protocol tokens that travel across the wire network card
 CHANNEL_MAP = {
-    "txt": 1,
+    "text": 1,
     "file": 2,
     "av": 3,
 }
@@ -48,40 +36,28 @@ REVERSE_CHANNEL_MAP = {
     for key, value in CHANNEL_MAP.items()
 }
 
-# =========================================================
-# FRAME FORMAT
-# =========================================================
-#
-# HEADER STRUCTURE:
-# -----------------
-#
-# version       -> 1 byte
-# channel_id    -> 1 byte
-# flags         -> 1 byte
-# reserved      -> 1 byte
-# message_id    -> 16 bytes (UUID)
-# chunk_index   -> 4 bytes
-# total_chunks  -> 4 bytes
-# payload_size  -> 4 bytes
-#
-# TOTAL HEADER SIZE = 32 bytes
-#
-# =========================================================
-
-HEADER_FORMAT = "!BBBB16sIII"
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
-
 FINAL_CHUNK_FLAG = 1
 
 
 # =========================================================
-# RECEIVED MESSAGE BUFFER
+# FRAME STRUCTURE
+# =========================================================
+#
+# HEADER FORMAT (!BBBB16sII):
+#
+# version       -> 1 byte   (B)
+# channel_id    -> 1 byte   (B)
+# flags         -> 1 byte   (B)
+# reserved      -> 1 byte   (B)
+# packet_id     -> 16 bytes UUID (16s)
+# chunk_index   -> 4 bytes  (I)
+# payload_size  -> 4 bytes  (I)
+#
+# TOTAL = 28 bytes
 # =========================================================
 
-@dataclass
-class MessageBuffer:
-    total_chunks: int
-    chunks: Dict[int, bytes]
+HEADER_FORMAT = "!BBBB16sII"
+HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
 
 # =========================================================
@@ -90,265 +66,157 @@ class MessageBuffer:
 
 class TransportManager:
 
-    def __init__(self,connection_manager: ConnectionManager):
-
+    def __init__(self, connection_manager: ConnectionManager):
         self.connection_manager = connection_manager
-
-        # message_id -> MessageBuffer
-        self.receive_buffers = {}
-
-        # packet handlers
-        self.handlers = []
-
         self.running = False
 
-        # peer/channel receive threads
-        self.receive_threads = {}
+        # Event-driven application handlers (e.g., hooks registered by main.py)
+        self.handlers = []
+
+        # Thread & resource synchronization tracking
+        self.receive_threads: Dict[Tuple[str, str], threading.Thread] = {}
+        self.thread_lock = threading.Lock()
 
     # =====================================================
-    # START
+    # ENGINE LIFECYCLE MANAGEMENT
     # =====================================================
 
     def start(self):
-
         if self.running:
             return
 
         print("\n[INFO] Starting transport layer...")
-
         self.running = True
 
-        self._start_receive_workers()
+        # Scan and retroactively bind to anything currently tracking inside connection registry
+        with self.connection_manager.lock:
+            for conn_type, type_map in self.connection_manager.connections.items():
+                # Map ConnectionType Enum back to our transport string labels
+                if conn_type == ConnectionType.CHAT:
+                    channel_str = "text"
+                elif conn_type == ConnectionType.FILE:
+                    channel_str = "file"
+                else:
+                    channel_str = "control"
 
-    # =====================================================
-    # STOP
-    # =====================================================
+                for peer_ip, raw_socket in type_map.items():
+                    if raw_socket:
+                        self.bind_socket(peer_ip, channel_str, raw_socket)
 
     def stop(self):
-
         if not self.running:
             return
 
         print("\n[INFO] Stopping transport layer...")
-
         self.running = False
+        
+        with self.thread_lock:
+            self.receive_threads.clear()
 
-    # =====================================================
-    # REGISTER HANDLER
-    # =====================================================
-
-    def register_handler(
-        self,
-        callback: Callable
-    ):
-
+    def register_handler(self, callback: Callable):
+        """Registers upper-layer callback handlers to process emitted raw frames."""
         self.handlers.append(callback)
 
     # =====================================================
-    # SEND
+    # DYNAMIC SOCKET REGISTRATION API
     # =====================================================
 
-    def send(
-        self,
-        peer_ip: str,
-        channel: str,
-        encrypted_data: bytes,
-        message_id: Optional[str] = None
-    ):
+    def bind_socket(self, peer_ip: str, channel_name: str, sock):
+        """
+        Public endpoint meant to be called dynamically by ConnectionManager or main.py
+        whenever a new connection drops or finishes shaking hands.
+        """
+        if not self.running:
+            return
 
+        thread_key = (peer_ip, channel_name)
+
+        with self.thread_lock:
+            # Check if an active thread is already managing this identity pipe
+            if thread_key in self.receive_threads and self.receive_threads[thread_key].is_alive():
+                return
+
+            thread = threading.Thread(
+                target=self._receive_loop,
+                args=(peer_ip, channel_name, sock),
+                daemon=True
+            )
+            self.receive_threads[thread_key] = thread
+            thread.start()
+            print(f"[TRANSPORT] Dynamically bound receiver worker for {peer_ip} [{channel_name}]")
+
+    # =====================================================
+    # UNIFIED PACKETIZED SENDING LOGIC
+    # =====================================================
+
+    def send_packetized_frame(self, peer_ip: str, packet: dict):
+        """
+        Accepts your standardized intermediate dictionary structures from both 
+        chat and file generators, fills in the binary headers, and sends them.
+        """
+        channel = packet.get("channel")  # Expected: "text" or "file"
         if channel not in CHANNEL_MAP:
-            raise ValueError(
-                f"Unknown channel: {channel}"
-            )
+            raise ValueError(f"Unknown channel routing: {channel}")
 
-        sock = self.connection_manager.get_socket(
-            peer_ip,
-            channel
-        )
+        # Map channel string to your connection manager's expected Enum type
+        enum_type = ConnectionType.CHAT if channel == "text" else ConnectionType.FILE
 
+        # Interrogate connection.py safely. If it exists, it returns it; if not, it requests an outbound pipe.
+        sock = self.connection_manager.open_data_channel(peer_ip, enum_type)
         if not sock:
-            raise ConnectionError(
-                f"No active socket for {peer_ip}"
-            )
+            raise ConnectionError(f"No active channel socket route for {peer_ip} ({channel})")
 
-        # ================================================
-        # MESSAGE ID
-        # ================================================
+        # Normalize across naming variations: text uses "message_id", file uses "message_id"
+        raw_uuid = packet.get("message_id")
+        if not raw_uuid:
+            raise KeyError("Packet dictionary is missing a unique tracking identifier (message_id / message_id)")
+        packet_uuid = uuid.UUID(raw_uuid)
 
-        if message_id is None:
-            message_id = str(uuid.uuid4())
+        chunk_index = packet.get("chunk_index")
+        total_chunks = packet.get("total_chunks")
+        payload = packet.get("payload", b"")
 
-        message_uuid = uuid.UUID(message_id)
+        if chunk_index is None or total_chunks is None:
+            raise ValueError("Packet must include valid integer tracking indicators for chunk_index and total_chunks")
 
-        # ================================================
-        # CHUNKING
-        # ================================================
+        # Automatically compute final chunk flag state logic safely
+        is_final = (chunk_index == total_chunks - 1)
+        flags = FINAL_CHUNK_FLAG if is_final else 0
 
-        chunks = self._chunk_data(
-            encrypted_data
-        )
-
-        total_chunks = len(chunks)
-
-        # ================================================
-        # SEND CHUNKS
-        # ================================================
-
-        for chunk_index, chunk in enumerate(chunks):
-
-            is_final = (
-                chunk_index == total_chunks - 1
-            )
-
-            frame = self._build_frame(
-                channel=channel,
-                message_uuid=message_uuid,
-                chunk_index=chunk_index,
-                total_chunks=total_chunks,
-                payload=chunk,
-                final=is_final
-            )
-
-            sock.sendall(frame)
-
-    # =====================================================
-    # CHUNK DATA
-    # =====================================================
-
-    def _chunk_data(
-        self,
-        data: bytes
-    ):
-
-        return [
-            data[i:i + CHUNK_SIZE]
-            for i in range(
-                0,
-                len(data),
-                CHUNK_SIZE
-            )
-        ]
-
-    # =====================================================
-    # BUILD FRAME
-    # =====================================================
-
-    def _build_frame(
-        self,
-        channel,
-        message_uuid,
-        chunk_index,
-        total_chunks,
-        payload,
-        final=False
-    ):
-
-        version = FRAME_VERSION
-
-        channel_id = CHANNEL_MAP[channel]
-
-        flags = 0
-
-        if final:
-            flags |= FINAL_CHUNK_FLAG
-
-        reserved = 0
-
-        payload_size = len(payload)
-
+        # Construct safe binary wire layout envelope
         header = struct.pack(
             HEADER_FORMAT,
-            version,
-            channel_id,
+            FRAME_VERSION,
+            CHANNEL_MAP[channel],
             flags,
-            reserved,
-            message_uuid.bytes,
+            0,  # Reserved space field
+            packet_uuid.bytes,
             chunk_index,
-            total_chunks,
-            payload_size
+            len(payload)
         )
 
-        return header + payload
+        try:
+            sock.sendall(header + payload)
+        except Exception as e:
+            print(f"[TRANSPORT WRITE ERROR] Failed transmission to {peer_ip}: {e}")
+            self._cleanup_resources(peer_ip, channel, sock)
+            raise e
 
     # =====================================================
-    # START RECEIVE WORKERS
+    # RECEIVE LOOP WITH INDEX 0 LOGIC DISTINCTION
     # =====================================================
 
-    def _start_receive_workers(self):
-
-        connections = (
-            self.connection_manager.connections
-        )
-
-        for peer_ip, peer_channels in (
-            connections.items()
-        ):
-
-            for channel_name in CHANNEL_MAP.keys():
-
-                sock = getattr(
-                    peer_channels,
-                    channel_name
-                )
-
-                if not sock:
-                    continue
-
-                thread_key = (
-                    peer_ip,
-                    channel_name
-                )
-
-                if thread_key in self.receive_threads:
-                    continue
-
-                thread = threading.Thread(
-                    target=self._receive_loop,
-                    args=(
-                        peer_ip,
-                        channel_name,
-                        sock
-                    ),
-                    daemon=True
-                )
-
-                thread.start()
-
-                self.receive_threads[
-                    thread_key
-                ] = thread
-
-    # =====================================================
-    # RECEIVE LOOP
-    # =====================================================
-
-    def _receive_loop(
-        self,
-        peer_ip,
-        channel_name,
-        sock
-    ):
-
-        print(
-            f"[TRANSPORT]"
-            f" Receiving {channel_name}"
-            f" from {peer_ip}"
-        )
+    def _receive_loop(self, peer_ip: str, channel_name: str, sock):
+        print(f"[TRANSPORT] Receiving loop initialized for {channel_name} from {peer_ip}")
 
         while self.running:
-
             try:
-
-                # ========================================
-                # READ HEADER
-                # ========================================
-
-                header = self._recv_exact(
-                    sock,
-                    HEADER_SIZE
-                )
-
+                # 1. Extract exactly the size required for the binary header frame
+                header = self._recv_exact(sock, HEADER_SIZE)
+                
+                # Detect graceful peer closure properly and end loop immediately
                 if not header:
+                    print(f"[TRANSPORT] Connection closed gracefully by remote peer: {peer_ip}")
                     break
 
                 (
@@ -356,357 +224,98 @@ class TransportManager:
                     channel_id,
                     flags,
                     reserved,
-                    message_uuid_bytes,
+                    packet_uuid_bytes,
                     chunk_index,
-                    total_chunks,
                     payload_size
-                ) = struct.unpack(
-                    HEADER_FORMAT,
-                    header
-                )
+                ) = struct.unpack(HEADER_FORMAT, header)
 
-                # ========================================
-                # READ PAYLOAD
-                # ========================================
+                # Handle malicious/unmapped raw channel values safely
+                resolved_channel = REVERSE_CHANNEL_MAP.get(channel_id, None)
+                if not resolved_channel:
+                    print(f"[PROTOCOL WARNING] Received illegal Channel ID: {channel_id}. Dropping data payload.")
+                    self._recv_exact(sock, payload_size)
+                    continue
 
-                payload = self._recv_exact(
-                    sock,
-                    payload_size
-                )
-
+                # 2. Extract the exact binary data payload allocation size
+                payload = self._recv_exact(sock, payload_size)
                 if payload is None:
+                    print(f"[TRANSPORT ERROR] Connection disconnected mid-payload stream from {peer_ip}")
                     break
 
-                # ========================================
-                # MESSAGE ID
-                # ========================================
+                # Translate parsed UUID bytes back to standard string token representation
+                packet_id = str(uuid.UUID(bytes=packet_uuid_bytes))
+                is_final = bool(flags & FINAL_CHUNK_FLAG)
 
-                message_id = str(
-                    uuid.UUID(
-                        bytes=message_uuid_bytes
-                    )
-                )
-
-                # ========================================
-                # STORE CHUNK
-                # ========================================
-
-                self._store_chunk(
-                    message_id=message_id,
-                    total_chunks=total_chunks,
-                    chunk_index=chunk_index,
-                    payload=payload,
-                    peer_ip=peer_ip,
-                    channel=channel_name
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[TRANSPORT ERROR]"
-                    f" {peer_ip}: {e}"
-                )
-
-                break
-
-    # =====================================================
-    # STORE CHUNK
-    # =====================================================
-
-    def _store_chunk(
-        self,
-        message_id,
-        total_chunks,
-        chunk_index,
-        payload,
-        peer_ip,
-        channel
-    ):
-
-        if message_id not in self.receive_buffers:
-
-            self.receive_buffers[
-                message_id
-            ] = MessageBuffer(
-                total_chunks=total_chunks,
-                chunks={}
-            )
-
-        buffer = self.receive_buffers[
-            message_id
-        ]
-
-        buffer.chunks[
-            chunk_index
-        ] = payload
-
-        # ================================================
-        # CHECK COMPLETE
-        # ================================================
-
-        if len(buffer.chunks) != buffer.total_chunks:
-            return
-
-        # ================================================
-        # REASSEMBLE
-        # ================================================
-
-        ordered_chunks = [
-            buffer.chunks[i]
-            for i in range(buffer.total_chunks)
-        ]
-
-        full_payload = b"".join(
-            ordered_chunks
-        )
-
-        # cleanup
-        del self.receive_buffers[message_id]
-
-        # ================================================
-        # EMIT
-        # ================================================
-
-        self._emit_message(
-            peer_ip=peer_ip,
-            channel=channel,
-            message_id=message_id,
-            payload=full_payload
-        )
-
-    # =====================================================
-    # EMIT MESSAGE
-    # =====================================================
-
-    def _emit_message(
-        self,
-        peer_ip,
-        channel,
-        message_id,
-        payload
-    ):
-
-        for handler in self.handlers:
-
-            try:
-
-                handler({
+                # =================================================
+                # EMIT BACK OUT MATCHING YOUR DICTIONARY KEY STYLES
+                # =================================================
+                frame_data = {
                     "peer_ip": peer_ip,
-                    "channel": channel,
-                    "message_id": message_id,
+                    "channel": resolved_channel,
+                    "chunk_index": chunk_index,
+                    "final": is_final,
                     "payload": payload,
-                })
-
-            except Exception as e:
-
-                print(
-                    f"[HANDLER ERROR] {e}"
-                )
-
-    # =====================================================
-    # RECEIVE EXACT
-    # =====================================================
-
-    def _recv_exact(
-        self,
-        sock,
-        size
-    ):
-
-        data = b""
-
-        while len(data) < size:
-
-            chunk = sock.recv(
-                size - len(data)
-            )
-
-            if not chunk:
-                return None
-
-            data += chunk
-
-        return data
-
-
-# =========================================================
-# TESTING / DEBUG
-# =========================================================
-
-if __name__ == "__main__":
-
-    import json
-    import time
-
-    from networking.discovery import (
-        DiscoveryService
-    )
-
-    username = input("Username: ")
-
-    # =====================================================
-    # DISCOVERY
-    # =====================================================
-
-    discovery = DiscoveryService(username)
-
-    discovery.start()
-
-    # =====================================================
-    # CONNECTIONS
-    # =====================================================
-
-    connection_manager = ConnectionManager(
-        username
-    )
-
-    connection_manager.start()
-
-    # =====================================================
-    # TRANSPORT
-    # =====================================================
-
-    transport = TransportManager(
-        connection_manager
-    )
-
-    # =====================================================
-    # HANDLER
-    # =====================================================
-
-    def on_message(data):
-
-        print("\n========== MESSAGE ==========")
-
-        print(f"Peer      : {data['peer_ip']}")
-        print(f"Channel   : {data['channel']}")
-        print(f"MessageID : {data['message_id']}")
-        print(f"Payload   : {data['payload']}")
-
-    transport.register_handler(
-        on_message
-    )
-
-    transport.start()
-
-    # =====================================================
-    # CLI LOOP
-    # =====================================================
-
-    print("""
-Commands:
----------
-peers
-connect <ip>
-send <ip> <message>
-exit
-    """)
-
-    try:
-
-        while True:
-
-            command = input("\n> ").strip()
-
-            # =============================================
-            # PEERS
-            # =============================================
-
-            if command == "peers":
-
-                peers = discovery.get_peers()
-
-                print(
-                    "\n========== PEERS =========="
-                )
-
-                for peer_id, data in peers.items():
-
-                    print(f"""
-Peer ID : {peer_id}
-Username: {data['username']}
-IP      : {data['ip']}
-                    """)
-
-            # =============================================
-            # CONNECT
-            # =============================================
-
-            elif command.startswith("connect"):
-
-                parts = command.split()
-
-                if len(parts) != 2:
-                    print(
-                        "Usage: connect <ip>"
-                    )
-                    continue
-
-                _, ip = parts
-
-                connection_manager.connect_to_peer(
-                    ip
-                )
-
-                time.sleep(1)
-
-                transport._start_receive_workers()
-
-            # =============================================
-            # SEND
-            # =============================================
-
-            elif command.startswith("send"):
-
-                parts = command.split(
-                    maxsplit=2
-                )
-
-                if len(parts) != 3:
-                    print(
-                        "Usage: send <ip> <message>"
-                    )
-                    continue
-
-                _, ip, message = parts
-
-                payload = {
-                    "type": "chat",
-                    "message": message
                 }
 
-                encoded = json.dumps(
-                    payload
-                ).encode()
+                # Condition your keys explicitly based on the incoming channel structure
+                if resolved_channel == "text":
+                    frame_data["message_id"] = packet_id
+                elif resolved_channel == "file":
+                    frame_data["message_id"] = packet_id
+                    
+                    # -------------------------------------------------------------
+                    # SPECIAL CASE DISTINCTION: FILE METADATA PACKET (CHUNK 0)
+                    # -------------------------------------------------------------
+                    if chunk_index == 0:
+                        # Mark an explicit flag so main.py/receiver scripts can notice 
+                        # it instantly without evaluating raw numerical comparisons.
+                        frame_data["is_metadata"] = True
 
-                # fake encrypted bytes for now
-                encrypted = encoded
+                self._emit_frame(frame_data)
 
-                transport.send(
-                    peer_ip=ip,
-                    channel="txt",
-                    encrypted_data=encrypted
-                )
-
-            # =============================================
-            # EXIT
-            # =============================================
-
-            elif command == "exit":
+            except Exception as e:
+                print(f"[TRANSPORT INTERRUPT] Exception in worker loop from {peer_ip}: {e}")
                 break
 
-            else:
-                print("Unknown command")
+        # Always trigger cleanup when exiting the connection context loop
+        self._cleanup_resources(peer_ip, channel_name, sock)
 
-    except KeyboardInterrupt:
-        pass
+    def _emit_frame(self, frame_data: dict):
+        for handler in self.handlers:
+            try:
+                handler(frame_data)
+            except Exception as e:
+                print(f"[APPLICATION LAYER HANDLER ERROR] Crash during callback handling: {e}")
 
-    finally:
+    # =====================================================
+    # HELPERS & STATE CLEANUP
+    # =====================================================
 
-        transport.stop()
+    def _cleanup_resources(self, peer_ip: str, channel_name: str, sock):
+        """Cleans up internal tracking references and shuts down active socket allocations safely."""
+        thread_key = (peer_ip, channel_name)
+        
+        with self.thread_lock:
+            if thread_key in self.receive_threads:
+                del self.receive_threads[thread_key]
 
-        connection_manager.stop()
+        try:
+            sock.shutdown(2)  # SHUT_RDWR
+            sock.close()
+        except Exception:
+            pass
 
-        discovery.stop()
+        print(f"[CLEANUP COMPLETE] System cleaned up all transport tracking metrics for {peer_ip} [{channel_name}]")
 
-        print("\n[INFO] Shutdown complete.")
+    def _recv_exact(self, sock, size: int) -> Optional[bytes]:
+        """Ensures complete TCP data frame chunks are fully recovered from network buffers."""
+        data = b""
+        while len(data) < size:
+            try:
+                chunk = sock.recv(size - len(data))
+                if not chunk:
+                    return None  # Connection was cleanly broken or shut down by peer
+                data += chunk
+            except (ConnectionResetError, OSError):
+                return None  # Unclean socket reset drop condition detected
+        return data

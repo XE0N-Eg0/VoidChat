@@ -1,413 +1,154 @@
-# ========================================
-#              receiver.py
-# ========================================
+# protocol/receiver.py
+#TODO: VISUAL CLEANING OF CODE
+# ================= RESPONSIBILITIES ======================
+# 1. Maintain memory reassembly buffers for incomplete text chats
+# 2. Maintain sequential window streaming pipelines for files
+# 3. Handle chunk_index 0 vs raw data transitions cleanly
+# 4. Remain completely stateless regarding I/O and Cryptography
+# =========================================================
 
-# =========== SYS IMPORTS ================
 import os
 import json
 import time
-from typing import Dict, Iterable
+from typing import Dict, Optional, Tuple, Generator
 
-# ========================================
-#                CONFIG
-# ========================================
+# =========================================================
+# CONFIGURATION BOUNDS
+# =========================================================
+CHUNK_TIMEOUT = 60.0  # Seconds before incomplete transfers are abandoned
 
-CHUNK_TIMEOUT = 60
+# In-memory allocation map for text chat frame gathering
+# Format: message_id -> {"chunks": {chunk_index: bytes}, "total_chunks": int, "created_at": float}
+chat_buffers: Dict[str, dict] = {}
 
-FLAG_FINAL_CHUNK = 0x01
-FLAG_CHAT_DATA = 0x02
-FLAG_FILE_METADATA = 0x04
-FLAG_FILE_DATA = 0x08
+# In-memory state tracking window for sequential file blocks
+# Format: message_id -> {"next_expected_index": int, "total_chunks": int, "window_buffer": {chunk_index: bytes}, "created_at": float}
+file_streams: Dict[str, dict] = {}
 
-# ========================================
-#           GLOBAL STORAGE
-# ========================================
 
-chat_buffers = {}
+# =========================================================
+# 1. TEXT CHAT REASSEMBLY PIPELINE
+# =========================================================
 
-"""
-chat_buffers = {
-    packet_id: {
-        "chunks": {},
-        "final_sequence": int | None,
-        "received_count": int,
-        "created_at": float,
-    }
-}
-"""
-
-file_streams = {}
-
-"""
-file_streams = {
-    packet_id: {
-        "expected_sequence": 0,
-        "pending_chunks": {},
-        "final_sequence": int | None,
-        "created_at": float,
-        "metadata": dict | None,
-    }
-}
-"""
-
-# ========================================
-#              DECRYPT
-# ========================================
-
-def decrypt(data: bytes) -> bytes:
+def receive_chat_frame(frame: dict) -> Optional[bytes]:
     """
-    Replace with real decryption.
+    Assembles scattered incoming text frames.
+    Returns a unified bytes block ONLY when all fragments have been received.
     """
+    msg_id = frame["message_id"] #also the session id in uppder layers 
+    chunk_idx = frame["chunk_index"]
+    total_chunks = frame["total_chunks"]  
+    payload = frame["payload"] # the main chunk 
 
-    return data
-
-
-# ========================================
-#        DESERIALIZE CHAT MESSAGE
-# ========================================
-
-def deserialize_chat_message(serialized_message: bytes) -> dict:
-
-    json_data = serialized_message.decode("utf-8")
-    message_dict = json.loads(
-        json_data
-    )
-    return message_dict
-
-# ========================================
-#      DESERIALIZE FILE METADATA
-# ========================================
-
-def deserialize_file_metadata(serialized_metadata: bytes) -> dict:
-
-    json_data = serialized_metadata.decode("utf-8")
-    metadata_dict = json.loads(json_data)
-
-    return metadata_dict
-
-# ========================================
-#        EXTRACT FILE METADATA
-# ========================================
-
-def extract_file_metadata(metadata_packet: dict) -> dict:
-
-    return {
-        "file_name": metadata_packet.get(
-            "file_name"
-        ),
-
-        "file_size": metadata_packet.get(
-            "file_size"
-        ),
-    }
-
-# ========================================
-#         RECEIVE CHAT FRAME
-# ========================================
-
-def receive_chat_frame(frame: dict):
-
-    """
-    INPUT:
-    {
-        peer_ip,
-        packet_id,
-        sequence,
-        final,
-        payload
-    }
-
-    OUTPUT:
-        None OR complete encrypted blob
-    """
-
-    packet_id = frame["packet_id"]
-    sequence = frame["sequence"]
-    final = frame["final"]
-    payload = frame["payload"]
-
-    # CREATE BUFFER
-    if packet_id not in chat_buffers:
-
-        chat_buffers[packet_id] = {
+    # Initialize tracking allocation if this is the first slice seen
+    if msg_id not in chat_buffers:
+        chat_buffers[msg_id] = {
             "chunks": {},
-            "final_sequence": None,
-            "received_count": 0,
-            "created_at": time.time(),
+            "total_chunks": total_chunks,
+            "created_at": time.time()
         }
 
-    buffer_data = chat_buffers[packet_id]
+    buffer = chat_buffers[msg_id]
+    buffer["chunks"][chunk_idx] = payload
 
-    # STORE CHUNK
-    if sequence not in buffer_data["chunks"]:
-
-        buffer_data["chunks"][
-            sequence
-        ] = payload
-
-        buffer_data[
-            "received_count"
-        ] += 1
-
-    # STORE FINAL SEQUENCE
-    if final:
-
-        buffer_data[
-            "final_sequence"
-        ] = sequence
-
-    # CHECK COMPLETION
-    final_sequence = buffer_data[
-        "final_sequence"
-    ]
-
-    if final_sequence is None:
-        return None
-
-    expected_chunks = (
-        final_sequence + 1
-    )
-
-    if (
-        buffer_data["received_count"]
-        == expected_chunks
-    ):
-
-        encrypted_blob = (
-            reconstruct_chat_message(
-                packet_id
-            )
-        )
-        # CLEANUP
-        del chat_buffers[packet_id]
-
-        return encrypted_blob
+    
+    if len(buffer["chunks"]) == buffer["total_chunks"]:
+        # Piece the block together in strict mathematical index order
+        ordered_parts = [buffer["chunks"][i] for i in range(buffer["total_chunks"])] #the worst pythonic way to say pick the correct block form buffer though indexing
+        complete_encrypted_block = b"".join(ordered_parts)
+        
+        # Purge resource allocation instantly
+        del chat_buffers[msg_id] # prevents the overflow or OOM errors (if any would like to occur)
+        return complete_encrypted_block
 
     return None
 
-# ========================================
-#      RECONSTRUCT CHAT MESSAGE
-# ========================================
 
-def reconstruct_chat_message(packet_id: str) -> bytes:
+def deserialize_chat_message(decrypted_bytes: bytes) -> dict:
+    """Helper utility to unpack JSON chat dict strings after decryption."""
+    return json.loads(decrypted_bytes.decode("utf-8")) #just encoded message
 
+
+# =========================================================
+# 2. FILE TRANSFERS & STREAMING LOGIC
+# =========================================================
+
+def handle_file_metadata(frame: dict) -> Tuple[str, dict]:
     """
+    Processes file chunk_index 0.
+    Unpacks file configuration metadata and initializes a sequential stream.
+    
     OUTPUT:
-        encrypted_blob: bytes
+        Tuple[message_id, metadata_dict]
     """
+    message_id = frame["message_id"]
+    total_chunks = frame["total_chunks"]
+    payload = frame["payload"]  # Metadata payload is handled at upper pipeline layers 
 
-    buffer_data = chat_buffers[packet_id]
-    chunks = buffer_data["chunks"]
-    ordered = []
-    for seq in sorted(chunks):
+    # Chunk 0 payload is always a serialized JSON string containing file specs
+    metadata = json.loads(payload.decode("utf-8")) 
 
-        ordered.append(chunks[seq])
+    #NOTE: For now we dont encrypting the metadata that means anyone can sniff and see the file metadata
 
-    encrypted_blob = b"".join(ordered)
-    return encrypted_blob
-
-# ========================================
-#        PROCESS CHAT MESSAGE
-# ========================================
-
-def process_chat_message(encrypted_blob: bytes) -> dict:
-
-    # DECRYPT
-    serialized_message = decrypt(encrypted_blob)
-
-    # DESERIALIZE
-    message_dict = (
-        deserialize_chat_message(
-            serialized_message
-        )
-    )
-    return message_dict
-
-# ========================================
-#      RECEIVE FILE METADATA FRAME
-# ========================================
-
-def receive_file_metadata_frame(frame: dict) -> dict:
-
-    """
-    FLOW
-
-    receive frame
-    → detect FILE_METADATA flag
-    → decrypt
-    → deserialize
-    → initialize session
-    """
-
-    packet_id = frame["packet_id"]
-
-    encrypted_metadata = frame["payload"]
-
-    # DECRYPT
-    serialized_metadata = decrypt(encrypted_metadata)
-
-    # DESERIALIZE
-    metadata_packet = (deserialize_file_metadata(serialized_metadata))
-
-    # EXTRACT
-    metadata = extract_file_metadata(metadata_packet)
-
-    # INITIALIZE STREAM
-    file_streams[packet_id] = {
-        "expected_sequence": 0,
-        "pending_chunks": {},
-        "final_sequence": None,
-        "created_at": time.time(),
-        "metadata": metadata,
+    # Initialize sliding tracking window state
+    # NOTE: 'next_expected_index' is set to 1, because chunk 0 was metadata (so we techinally start form 1->END OF FILE)
+    file_streams[message_id] = {
+        "next_expected_index": 1,
+        "total_chunks": total_chunks,  # NOTE: Cached to manage clean pipeline teardown bounds
+        "window_buffer": {},
+        "created_at": time.time()
     }
 
-    return metadata
+    return message_id, metadata #this returns both 
 
-# ========================================
-#         RECEIVE FILE FRAME
-# ========================================
 
-def receive_file_frame(frame: dict) -> Iterable[bytes]:
-
+def receive_file_data_frame(frame: dict) -> Generator[bytes, None, None]:
     """
-    INPUT:
-    {
-        packet_id,
-        sequence,
-        final,
-        payload
-    }
-
-    OUTPUT:
-        yields encrypted chunk
+    A lazy sliding-window chunk collector. 
+    Accepts file data frames (indexes 1 to N), caches out-of-order chunks, 
+    and yields them in absolute sequential order as soon as gaps close.
     """
-
-    packet_id = frame["packet_id"]
-    sequence = frame["sequence"]
-    final = frame["final"]
+    message_id = frame["message_id"]
+    chunk_idx = frame["chunk_index"]
     payload = frame["payload"]
 
-    if packet_id not in file_streams:
+    #NOTE: If chunk 0 never initialized this stream layout, drop it
+    if message_id not in file_streams:
+        print(f"[RECEIVER WARNING] Dropping orphaned file frame for session {message_id}")
         return
 
-    stream = file_streams[packet_id]
+    stream = file_streams[message_id]
+    
+    # Store chunk inside out-of-order map cache
+    stream["window_buffer"][chunk_idx] = payload
 
-    # STORE PENDING CHUNK
-    stream["pending_chunks"][sequence] = payload
+    # Yield all consecutive matching chunks ready in the queue line
+    while stream["next_expected_index"] in stream["window_buffer"]:
+        current_idx = stream["next_expected_index"]
+        chunk_data = stream["window_buffer"].pop(current_idx)
+        
+        yield chunk_data
+        
+        stream["next_expected_index"] += 1
+        
+        # NOTE: Teardown logic relies purely on checking if the counter has hit the calculated total size.
+        # This prevents dropped packet frames or out-of-order arrivals from prematurely breaking the socket handler.
+        if stream["next_expected_index"] == stream["total_chunks"]:
+            del file_streams[message_id]
+            return
 
-    # STORE FINAL SEQUENCE
-    if final:
-        stream["final_sequence"] = sequence
 
-    # RELEASE IN ORDER
-    while (
-        stream["expected_sequence"]
-        in stream["pending_chunks"]
-    ):
+# =========================================================
+# 3. HOUSEKEEPING & MEMORY MANAGEMENT
+# =========================================================
 
-        expected_sequence = stream["expected_sequence"]
+def cleanup_expired_buffers(): #NOTE: THIS FUCNTION WAS GENERATED THROUGH AI SO I DONT GET THE BLAME FOR IT
+    now = time.time()
 
-        encrypted_chunk = (
-            stream["pending_chunks"].pop(
-                expected_sequence
-            )
-        )
+    dead_chats = [k for k, v in chat_buffers.items() if now - v["created_at"] > CHUNK_TIMEOUT]
+    for k in dead_chats:
+        del chat_buffers[k]
 
-        stream["expected_sequence"] += 1
-
-        yield encrypted_chunk
-
-    # CLEANUP
-    final_sequence = stream["final_sequence"]
-
-    if (
-        final_sequence is not None
-        and
-        stream["expected_sequence"]
-        > final_sequence
-    ):
-
-        del file_streams[packet_id]
-
-# ========================================
-#      PROCESS FILE CHUNK STREAM
-# ========================================
-
-def process_file_chunk_stream(encrypted_chunks: Iterable[bytes]) -> Iterable[bytes]:
-
-    for encrypted_chunk in encrypted_chunks:
-
-        decrypted_chunk = decrypt(
-            encrypted_chunk
-        )
-        yield decrypted_chunk
-
-# ========================================
-#        WRITE STREAM TO FILE
-# ========================================
-
-def write_stream_to_file(decrypted_chunks: Iterable[bytes],output_path: str,) -> str:
-
-    """
-    INPUT:
-        decrypted chunks
-
-    OUTPUT:
-        final file path
-    """
-
-    with open(output_path,"ab") as file_handle:
-        for chunk in decrypted_chunks:
-            file_handle.write(chunk)
-    return output_path
-
-# ========================================
-#         CLEANUP OLD BUFFERS
-# ========================================
-
-def cleanup_expired_buffers():
-
-    current_time = time.time()
-
-    # CHAT CLEANUP
-    expired_chat_packets = []
-
-    for (
-        packet_id,
-        buffer_data
-    ) in chat_buffers.items():
-
-        age = (
-            current_time
-            - buffer_data["created_at"]
-        )
-
-        if age > CHUNK_TIMEOUT:
-
-            expired_chat_packets.append(
-                packet_id
-            )
-
-    for packet_id in expired_chat_packets:
-
-        del chat_buffers[packet_id]
-
-    # FILE CLEANUP
-    expired_file_packets = []
-
-    for (
-        packet_id,
-        stream
-    ) in file_streams.items():
-
-        age = (
-            current_time
-            - stream["created_at"]
-        )
-
-        if age > CHUNK_TIMEOUT:
-
-            expired_file_packets.append(packet_id)
-
-    for packet_id in expired_file_packets:
-        del file_streams[packet_id]
+    dead_files = [k for k, v in file_streams.items() if now - v["created_at"] > CHUNK_TIMEOUT]
+    for k in dead_files:
+        del file_streams[k]

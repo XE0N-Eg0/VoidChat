@@ -1,10 +1,10 @@
-# transport.py
-
+# networking/transport.py
+#FIXME: Visual code changes
 # ================= RESPONSIBILITIES ======================
 # 1. Frame outgoing payloads (Unified Packetized Dictionary method)
 # 2. Send framed payloads
 # 3. Receive framed payloads
-# 4. Parse frame headers
+# 4. Parse frame headers (Upgraded to 32-byte layout)
 # 5. Emit raw frames matching upper-layer specifications
 # 6. Differentiate chunk_index 0 (Metadata chunk) for files
 # =========================================================
@@ -40,10 +40,10 @@ FINAL_CHUNK_FLAG = 1
 
 
 # =========================================================
-# FRAME STRUCTURE
+# FRAME STRUCTURE (UPGRADED TO 32-BYTES) 
 # =========================================================
-#
-# HEADER FORMAT (!BBBB16sII):
+#NOTE: DO NOT REMOVE THIS FORM CODE
+# HEADER FORMAT (!BBBB16sIII):
 #
 # version       -> 1 byte   (B)
 # channel_id    -> 1 byte   (B)
@@ -51,12 +51,13 @@ FINAL_CHUNK_FLAG = 1
 # reserved      -> 1 byte   (B)
 # packet_id     -> 16 bytes UUID (16s)
 # chunk_index   -> 4 bytes  (I)
+# total_chunks  -> 4 bytes  (I)
 # payload_size  -> 4 bytes  (I)
 #
-# TOTAL = 28 bytes
+# TOTAL = 32 bytes
 # =========================================================
 
-HEADER_FORMAT = "!BBBB16sII"
+HEADER_FORMAT = "!BBBB16sIII"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
 
@@ -161,15 +162,14 @@ class TransportManager:
         # Map channel string to your connection manager's expected Enum type
         enum_type = ConnectionType.CHAT if channel == "text" else ConnectionType.FILE
 
-        # Interrogate connection.py safely. If it exists, it returns it; if not, it requests an outbound pipe.
+        # Interrogate connection.py safely
         sock = self.connection_manager.open_data_channel(peer_ip, enum_type)
         if not sock:
             raise ConnectionError(f"No active channel socket route for {peer_ip} ({channel})")
 
-        # Normalize across naming variations: text uses "message_id", file uses "message_id"
         raw_uuid = packet.get("message_id")
         if not raw_uuid:
-            raise KeyError("Packet dictionary is missing a unique tracking identifier (message_id / message_id)")
+            raise KeyError("Packet dictionary is missing a unique tracking identifier (message_id)")
         packet_uuid = uuid.UUID(raw_uuid)
 
         chunk_index = packet.get("chunk_index")
@@ -183,7 +183,7 @@ class TransportManager:
         is_final = (chunk_index == total_chunks - 1)
         flags = FINAL_CHUNK_FLAG if is_final else 0
 
-        # Construct safe binary wire layout envelope
+        # Construct safe binary wire layout envelope (32 bytes total)
         header = struct.pack(
             HEADER_FORMAT,
             FRAME_VERSION,
@@ -192,6 +192,7 @@ class TransportManager:
             0,  # Reserved space field
             packet_uuid.bytes,
             chunk_index,
+            total_chunks,
             len(payload)
         )
 
@@ -211,7 +212,7 @@ class TransportManager:
 
         while self.running:
             try:
-                # 1. Extract exactly the size required for the binary header frame
+                # 1. Extract exactly 32 bytes required for the updated binary header frame
                 header = self._recv_exact(sock, HEADER_SIZE)
                 
                 # Detect graceful peer closure properly and end loop immediately
@@ -226,6 +227,7 @@ class TransportManager:
                     reserved,
                     packet_uuid_bytes,
                     chunk_index,
+                    total_chunks,
                     payload_size
                 ) = struct.unpack(HEADER_FORMAT, header)
 
@@ -242,34 +244,26 @@ class TransportManager:
                     print(f"[TRANSPORT ERROR] Connection disconnected mid-payload stream from {peer_ip}")
                     break
 
-                # Translate parsed UUID bytes back to standard string token representation
+                # Translate parsed UUID bytes back to standard string representation
                 packet_id = str(uuid.UUID(bytes=packet_uuid_bytes))
                 is_final = bool(flags & FINAL_CHUNK_FLAG)
 
-                # =================================================
-                # EMIT BACK OUT MATCHING YOUR DICTIONARY KEY STYLES
-                # =================================================
+                # Emit back out matching upper layer properties exactly
                 frame_data = {
                     "peer_ip": peer_ip,
                     "channel": resolved_channel,
                     "chunk_index": chunk_index,
+                    "total_chunks": total_chunks,
                     "final": is_final,
                     "payload": payload,
+                    "message_id": packet_id
                 }
 
-                # Condition your keys explicitly based on the incoming channel structure
-                if resolved_channel == "text":
-                    frame_data["message_id"] = packet_id
-                elif resolved_channel == "file":
-                    frame_data["message_id"] = packet_id
-                    
-                    # -------------------------------------------------------------
-                    # SPECIAL CASE DISTINCTION: FILE METADATA PACKET (CHUNK 0)
-                    # -------------------------------------------------------------
-                    if chunk_index == 0:
-                        # Mark an explicit flag so main.py/receiver scripts can notice 
-                        # it instantly without evaluating raw numerical comparisons.
-                        frame_data["is_metadata"] = True
+                # -------------------------------------------------------------
+                # SPECIAL CASE DISTINCTION: FILE METADATA PACKET (CHUNK 0)
+                # -------------------------------------------------------------
+                if resolved_channel == "file" and chunk_index == 0:
+                    frame_data["is_metadata"] = True  #NOTE: this says upper layer to parse this differntly
 
                 self._emit_frame(frame_data)
 
@@ -288,11 +282,11 @@ class TransportManager:
                 print(f"[APPLICATION LAYER HANDLER ERROR] Crash during callback handling: {e}")
 
     # =====================================================
-    # HELPERS & STATE CLEANUP
+    # HELPERS & STATE CLEANUP NOTE: this was done by ai so might break 
     # =====================================================
 
     def _cleanup_resources(self, peer_ip: str, channel_name: str, sock):
-        """Cleans up internal tracking references and shuts down active socket allocations safely."""
+
         thread_key = (peer_ip, channel_name)
         
         with self.thread_lock:
@@ -308,14 +302,14 @@ class TransportManager:
         print(f"[CLEANUP COMPLETE] System cleaned up all transport tracking metrics for {peer_ip} [{channel_name}]")
 
     def _recv_exact(self, sock, size: int) -> Optional[bytes]:
-        """Ensures complete TCP data frame chunks are fully recovered from network buffers."""
+
         data = b""
         while len(data) < size:
             try:
                 chunk = sock.recv(size - len(data))
                 if not chunk:
-                    return None  # Connection was cleanly broken or shut down by peer
+                    return None 
                 data += chunk
             except (ConnectionResetError, OSError):
-                return None  # Unclean socket reset drop condition detected
+                return None  
         return data

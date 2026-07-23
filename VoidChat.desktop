@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=VoidChat
+Comment=Decentralized P2P Messenger
+Exec=python3 src/app.py
+Path=/home/YOUR_USERNAME/path/to/VoidChat
+Terminal=true
+Icon=/home/YOUR_USERNAME/path/to/VoidChat/voidchat.png
+Type=Application
+Categories=Network;

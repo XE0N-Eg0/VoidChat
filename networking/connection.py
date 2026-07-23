@@ -1,4 +1,4 @@
-# connection.py (Updated for Ephemeral File Connections & Signaling)
+# networking/connection.py 
 
 import socket
 import threading
@@ -28,6 +28,11 @@ class ConnectionManager:
         self.connection_handlers: List[Callable] = []
         self.running = False
         self.lock = threading.Lock()
+        self.consent_callback = None
+    
+    def set_consent_callback(self, callback: Callable):
+        "allows main.py to inject callback logic"
+        self.consent_callback = callback
 
     def register_connection_handler(self, callback: Callable):
         self.connection_handlers.append(callback)
@@ -73,13 +78,20 @@ class ConnectionManager:
                         continue
 
                 with self.lock:
+                    # Close old socket if reconnecting
+                    old_sock = self.connections[conn_type].get(peer_ip)
+                    if old_sock:
+                        try:
+                            old_sock.close()
+                        except Exception:
+                            pass
                     self.connections[conn_type][peer_ip] = client_socket
 
                 # Inform transport layer to immediately spin up a receiver thread for this socket
                 self._notify_handlers(peer_ip, conn_type, client_socket)
 
             except OSError:
-                break
+                break # Socket closed during shutdown
 
     def open_data_channel(self, peer_ip: str, conn_type: ConnectionType) -> Optional[socket.socket]:
         """
@@ -89,14 +101,15 @@ class ConnectionManager:
         port_map = {ConnectionType.CONTROL: 5001, ConnectionType.CHAT: 6000, ConnectionType.FILE: 6001}
         
         with self.lock:
-            # If it's already open, reuse it (like the Chat socket)
+            # If it's already open, reuse it
             if peer_ip in self.connections[conn_type]:
                 return self.connections[conn_type][peer_ip]
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
+            sock.settimeout(10)  # Timeout only for the initial connection attempt
             sock.connect((peer_ip, port_map[conn_type]))
+            sock.settimeout(None)  # Clear timeout so the receiver loop can block forever
             
             with self.lock:
                 self.connections[conn_type][peer_ip] = sock
@@ -124,6 +137,39 @@ class ConnectionManager:
                 pass
 
     def _has_user_consented_to_file(self, peer_ip: str) -> bool:
-        # Hook this up to your Orchestrator/State layer.
-        # True if your app received an 'APPROVED' signal from this peer via Chat/Control within the last few minutes.
-        return True
+        """
+        FIXES THE CRASH: Stub method for file consent.
+        Hook this up to your Orchestrator/State layer later.
+        True if your app received an 'APPROVED' signal from this peer via Chat/Control.
+        """
+        if self.consent_callback:
+            return self.consent_callback(peer_ip)
+        return False
+
+    def stop(self) -> None:
+        """Gracefully stops all listeners and closes active connections."""
+        self.running = False
+        
+        # Close listener sockets
+        for conn_type, sock in list(self.listeners.items()):
+            try:
+                sock.close()
+            except Exception:
+                pass
+        self.listeners.clear()
+        
+        # Close all active peer connections to free network resources
+        with self.lock:
+            for conn_type, type_map in self.connections.items():
+                for peer_ip, sock in type_map.items():
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                        sock.close()
+                    except Exception:
+                        pass
+                type_map.clear()
+
+    def is_peer_connected(self, peer_ip: str, conn_type: ConnectionType = ConnectionType.CHAT) -> bool:
+        """Checks if a TCP connection is currently active."""
+        with self.lock:
+            return peer_ip in self.connections[conn_type]

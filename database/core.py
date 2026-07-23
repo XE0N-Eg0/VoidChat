@@ -1,14 +1,9 @@
-# ==============================================================================
-# IMPORTS
-# ==============================================================================
+# database/core.py
 
 import sqlite3
-
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
+from typing import Optional, List, Dict, Any
 
 # ==============================================================================
 # CONFIG
@@ -16,505 +11,250 @@ from typing import Optional
 
 DB_PATH = Path("data/app.db")
 
-
 # ==============================================================================
 # SQLITE CONNECTION
 # ==============================================================================
 
-def get_connection():
-
+def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     """
     PURPOSE :
-        Create SQLite connection.
-
-    OUTPUT :
-        sqlite3.Connection
+        Create a secure thread-safe SQLite connection configuration.
     """
-
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    connection = sqlite3.connect(DB_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # timeout=10 helps manage busy states if multiple threads attempt to write
+    connection = sqlite3.connect(db_path, timeout=10.0)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-
     return connection
-
 
 # ==============================================================================
 # DATA MODELS
 # ==============================================================================
 
 @dataclass 
-class User:
-    user_id: str #change this to peer_id
+class Peer:
+    peer_id: str
     username: str
-    public_key: Optional[str] = None #this will be uuid given by me/or other
-    ip_address: Optional[str] = None
+    ip_address: str
+    shared_key: Optional[bytes] = None
     last_seen: Optional[str] = None
-    status: Optional[str] = None
-    #port ?
-
-
-@dataclass
-class Conversation:
-    conversation_id: str
-    title: Optional[str] = None
-    created_at: Optional[str] = None
-    last_activity: Optional[str] = None
-
-
-@dataclass
-class ConversationParticipant:
-    participant_id: str
-    conversation_id: str
-    user_id: str
-    joined_at: Optional[str] = None
-    role: Optional[str] = None
-    last_seen: Optional[str] = None
-
 
 @dataclass
 class Message:
-    message_id: str
-    sender_id: str
-    receiver_id: str
-    conversation_id: Optional[str]
-    encrypted_message: str
+    id: Optional[int]
+    peer_id: str
+    sender_name: str
+    message_type: str
+    payload: Optional[str] = None
+    file_path: Optional[str] = None
     timestamp: Optional[str] = None
-    delivery_status: Optional[str] = None
-
-
-@dataclass
-class FileMetadata:
-    file_id: str
-    sender_id: str
-    receiver_id: str
-    conversation_id: Optional[str]
-    filename: str
-    file_size: int
-    checksum: Optional[str] = None
-    total_chunks: int = 0
-    transfer_status: Optional[str] = None
-
-
-@dataclass
-class FileChunk:
-    chunk_id: str
-    file_id: str
-    chunk_index: int
-    chunk_path: str
-    is_received: bool = False
-
 
 # ==============================================================================
 # DATABASE INITIALIZATION
 # ==============================================================================
 
-def initialize_database():
-
+def initialize_database(db_path: Path = DB_PATH):
     """
     PURPOSE :
-        Initialize database tables.
-
-    OUTPUT :
-        None
+        Initialize database schema structurally if missing.
     """
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
 
-    connection = get_connection()
-    cursor = connection.cursor()
-
-    create_users_table(cursor)
-    create_conversations_table(cursor)
-    create_conversation_participants_table(cursor)
-    create_messages_table(cursor)
-    create_files_table(cursor)
-    create_file_chunks_table(cursor)
-
-    connection.commit()
-    connection.close()
-
-
-def create_users_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            username TEXT NOT NULL,
-            public_key TEXT,
-            ip_address TEXT,
-            last_seen TIMESTAMP,
-            status TEXT
+        # Create peers table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS peers (
+                peer_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                ip_address TEXT NOT NULL,
+                shared_key BLOB,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
-        """
-    )
 
-
-def create_conversations_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversations (
-            conversation_id TEXT PRIMARY KEY,
-            title TEXT,
-            created_at TIMESTAMP,
-            last_activity TIMESTAMP
+        # Create messages table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                peer_id TEXT NOT NULL,
+                sender_name TEXT NOT NULL,
+                message_type TEXT NOT NULL,
+                payload TEXT,
+                file_path TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (peer_id) REFERENCES peers(peer_id) ON DELETE CASCADE
+            )
+            """
         )
-        """
-    )
-
-
-def create_conversation_participants_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_participants (
-            participant_id TEXT PRIMARY KEY,
-            conversation_id TEXT,
-            user_id TEXT,
-            joined_at TIMESTAMP,
-            role TEXT,
-            last_seen TIMESTAMP,
-            FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id),
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-        """
-    )
-
-
-def create_messages_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS messages (
-            message_id TEXT PRIMARY KEY,
-            sender_id TEXT,
-            receiver_id TEXT,
-            conversation_id TEXT,
-            encrypted_message TEXT,
-            timestamp TIMESTAMP,
-            delivery_status TEXT,
-            FOREIGN KEY (sender_id) REFERENCES users(user_id),
-            FOREIGN KEY (receiver_id) REFERENCES users(user_id),
-            FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id)
-        )
-        """
-    )
-
-
-def create_files_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS files (
-            file_id TEXT PRIMARY KEY,
-            sender_id TEXT,
-            receiver_id TEXT,
-            conversation_id TEXT,
-            filename TEXT,
-            file_size INTEGER,
-            checksum TEXT,
-            total_chunks INTEGER,
-            transfer_status TEXT,
-            FOREIGN KEY (sender_id) REFERENCES users(user_id),
-            FOREIGN KEY (receiver_id) REFERENCES users(user_id),
-            FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id)
-        )
-        """
-    )
-
-
-def create_file_chunks_table(cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS file_chunks (
-            chunk_id TEXT PRIMARY KEY,
-            file_id TEXT,
-            chunk_index INTEGER,
-            chunk_path TEXT,
-            is_received INTEGER,
-            FOREIGN KEY (file_id) REFERENCES files(file_id)
-        )
-        """
-    )
-
+        connection.commit()
 
 # ==============================================================================
-# DATABASE QUERIES
+# DATABASE QUERIES (THREAD-SAFE & UNIFIED)
 # ==============================================================================
 
-def add_user(connection: sqlite3.Connection, user: User):
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO users (
-            user_id,
-            username,
-            public_key,
-            ip_address,
-            last_seen,
-            status
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            user.user_id,
-            user.username,
-            user.public_key,
-            user.ip_address,
-            user.last_seen,
-            user.status,
-        ),
-    )
-    connection.commit()
-
-
-#create one function that fetches the user data and returns as dict
-
-def get_user_by_id(connection: sqlite3.Connection, user_id: str):
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    return cursor.fetchone()
-
-
-def update_user_status(connection: sqlite3.Connection, user_id: str, status: str):
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        UPDATE users
-        SET status = ?, last_seen = CURRENT_TIMESTAMP
-        WHERE user_id = ?
-        """,
-        (status, user_id),
-    )
-    connection.commit()
-
-#link the table with primary / differy key to get the meessage of a particular user
-
-def add_conversation(connection: sqlite3.Connection, conversation: Conversation):
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO conversations (
-            conversation_id,
-            title,
-            created_at,
-            last_activity
-        ) VALUES (?, ?, ?, ?)
-        """,
-        (
-            conversation.conversation_id,
-            conversation.title,
-            conversation.created_at,
-            conversation.last_activity,
-        ),
-    )
-    connection.commit()
-
-#??
-
-def add_conversation_participant(
+def save_or_update_peer(
     connection: sqlite3.Connection,
-    participant: ConversationParticipant,
-):
+    peer_id: str,
+    username: str,
+    ip_address: str,
+    shared_key: bytes = None
+) -> bool:
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO peers (peer_id, username, ip_address, shared_key, last_seen)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(peer_id) DO UPDATE SET
+                username = excluded.username,
+                ip_address = excluded.ip_address,
+                shared_key = COALESCE(excluded.shared_key, peers.shared_key),
+                last_seen = CURRENT_TIMESTAMP
+            """,
+            (peer_id, username, ip_address, shared_key),
+        )
+        connection.commit()
+        return True  # If execution reaches here without error, write was successful
+    except sqlite3.Error as e:
+        print(f"[DB ERROR] save_or_update_peer failed: {e}")
+        return False
+
+def get_peer_ip_by_username(connection: sqlite3.Connection, username: str) -> Optional[str]:
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT ip_address FROM peers WHERE username = ? ORDER BY last_seen DESC LIMIT 1",
+        (username,)
+    )
+    row = cursor.fetchone()
+    return row["ip_address"] if row else None
+
+def get_peer_id_by_username(connection: sqlite3.Connection, username: str) -> Optional[str]:
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT peer_id FROM peers WHERE username = ? LIMIT 1",
+        (username,)
+    )
+    row = cursor.fetchone()
+    return row["peer_id"] if row else None
+
+def get_all_active_chats(connection: sqlite3.Connection) -> List[Dict[str, Any]]:
     cursor = connection.cursor()
     cursor.execute(
         """
-        INSERT OR REPLACE INTO conversation_participants (
-            participant_id,
-            conversation_id,
-            user_id,
-            joined_at,
-            role,
-            last_seen
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            participant.participant_id,
-            participant.conversation_id,
-            participant.user_id,
-            participant.joined_at,
-            participant.role,
-            participant.last_seen,
-        ),
+        SELECT p.peer_id, p.username, p.ip_address, m.payload AS last_message, m.timestamp
+        FROM peers p
+        JOIN messages m ON p.peer_id = m.peer_id
+        WHERE m.id = (
+            SELECT MAX(m2.id)
+            FROM messages m2
+            WHERE m2.peer_id = p.peer_id
+        )
+        ORDER BY m.id DESC
+        """
     )
-    connection.commit()
+    rows = cursor.fetchall()
+    return [dict(row) for row in rows]
 
-
-def get_conversation_by_id(connection: sqlite3.Connection, conversation_id: str):
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM conversations WHERE conversation_id = ?", (conversation_id,))
-    return cursor.fetchone()
-
-
-def list_conversation_participants(connection: sqlite3.Connection, conversation_id: str):
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT * FROM conversation_participants WHERE conversation_id = ?",
-        (conversation_id,),
-    )
-    return cursor.fetchall()
-
-
-def add_message(connection: sqlite3.Connection, message: Message):
+def log_message(
+    connection: sqlite3.Connection,
+    peer_id: str,
+    sender_name: str,
+    message_type: str,
+    payload: str = None,
+    file_path: str = None
+) -> int:
     cursor = connection.cursor()
     cursor.execute(
         """
-        INSERT OR REPLACE INTO messages (
-            message_id,
-            sender_id,
-            receiver_id,
-            conversation_id,
-            encrypted_message,
-            timestamp,
-            delivery_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (peer_id, sender_name, message_type, payload, file_path, timestamp)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """,
-        (
-            message.message_id,
-            message.sender_id,
-            message.receiver_id,
-            message.conversation_id,
-            message.encrypted_message,
-            message.timestamp,
-            message.delivery_status,
-        ),
+        (peer_id, sender_name, message_type, payload, file_path),
     )
     connection.commit()
+    return cursor.lastrowid
 
-##??
-
-def get_messages_for_conversation(connection: sqlite3.Connection, conversation_id: str):
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
-        (conversation_id,),
-    )
-    return cursor.fetchall()
-
-
-def add_file_metadata(connection: sqlite3.Connection, file_meta: FileMetadata):
+def fetch_conversation_history(
+    connection: sqlite3.Connection,
+    peer_id: str,
+    limit: int = 50,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
     cursor = connection.cursor()
     cursor.execute(
         """
-        INSERT OR REPLACE INTO files (
-            file_id,
-            sender_id,
-            receiver_id,
-            conversation_id,
-            filename,
-            file_size,
-            checksum,
-            total_chunks,
-            transfer_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SELECT sender_name, message_type, payload, file_path, timestamp 
+        FROM messages 
+        WHERE peer_id = ? 
+        ORDER BY id DESC 
+        LIMIT ? OFFSET ?
         """,
-        (
-            file_meta.file_id,
-            file_meta.sender_id,
-            file_meta.receiver_id,
-            file_meta.conversation_id,
-            file_meta.filename,
-            file_meta.file_size,
-            file_meta.checksum,
-            file_meta.total_chunks,
-            file_meta.transfer_status,
-        ),
+        (peer_id, limit, offset),
     )
-    connection.commit()
-
-## i dont need this
-def add_file_chunk(connection: sqlite3.Connection, chunk: FileChunk):
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO file_chunks (
-            chunk_id,
-            file_id,
-            chunk_index,
-            chunk_path,
-            is_received
-        ) VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            chunk.chunk_id,
-            chunk.file_id,
-            chunk.chunk_index,
-            chunk.chunk_path,
-            int(chunk.is_received),
-        ),
-    )
-    connection.commit()
-
-## ?? i dont need this
-def mark_file_chunk_received(connection: sqlite3.Connection, chunk_id: str):
-    cursor = connection.cursor()
-    cursor.execute(
-        "UPDATE file_chunks SET is_received = 1 WHERE chunk_id = ?",
-        (chunk_id,),
-    )
-    connection.commit()
-
-
-def get_file_chunks(connection: sqlite3.Connection, file_id: str):
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT * FROM file_chunks WHERE file_id = ? ORDER BY chunk_index ASC",
-        (file_id,),
-    )
-    return cursor.fetchall()
-
+    rows = cursor.fetchall()
+    return list(reversed([dict(row) for row in rows]))
 
 # ==============================================================================
-# DATABASE MANAGER
+# DATABASE MANAGER (CLEAN AUTOMATED LAYER FOR MULTI-THREADING)
 # ==============================================================================
 
 class DatabaseManager:
-    def __init__(self):
-        self.connection = get_connection()
-        initialize_database()
+    """
+    Manages operational task workflows thread-safely by spawning context connections 
+    per runtime request dynamically.
+    """
+    def __init__(self, db_path: Path = DB_PATH):
+        self.db_path = db_path
+        # Setup structural layout safety bounds upon invocation
+        initialize_database(self.db_path)
 
-    def close(self):
-        self.connection.close()
+    def save_or_update_peer(self, peer_id: str, username: str, ip_address: str, shared_key: bytes = None) -> bool:
+        with get_connection(self.db_path) as conn:
+            return save_or_update_peer(conn, peer_id, username, ip_address, shared_key)
 
-    def add_user(self, user: User):
-        add_user(self.connection, user)
+    def get_peer_ip_by_username(self, username: str) -> Optional[str]:
+        with get_connection(self.db_path) as conn:
+            return get_peer_ip_by_username(conn, username)
 
-    def get_user(self, user_id: str):
-        return get_user_by_id(self.connection, user_id)
+    def get_peer_id_by_username(self, username: str) -> Optional[str]:
+        with get_connection(self.db_path) as conn:
+            return get_peer_id_by_username(conn, username)
 
-    def update_user_status(self, user_id: str, status: str):
-        update_user_status(self.connection, user_id, status)
+    def get_all_active_chats(self) -> List[Dict[str, Any]]:
+        with get_connection(self.db_path) as conn:
+            return get_all_active_chats(conn)
 
-    def add_conversation(self, conversation: Conversation):
-        add_conversation(self.connection, conversation)
+    def log_message(self, peer_id: str, sender_name: str, message_type: str, payload: str = None, file_path: str = None) -> int:
+        with get_connection(self.db_path) as conn:
+            return log_message(conn, peer_id, sender_name, message_type, payload, file_path)
 
-    def add_participant(self, participant: ConversationParticipant):
-        add_conversation_participant(self.connection, participant)
-
-    def get_conversation(self, conversation_id: str):
-        return get_conversation_by_id(self.connection, conversation_id)
-
-    def list_participants(self, conversation_id: str):
-        return list_conversation_participants(self.connection, conversation_id)
-
-    def add_message(self, message: Message):
-        add_message(self.connection, message)
-
-    def get_messages(self, conversation_id: str):
-        return get_messages_for_conversation(self.connection, conversation_id)
-
-    def add_file(self, file_meta: FileMetadata):
-        add_file_metadata(self.connection, file_meta)
-
-    def add_file_chunk(self, chunk: FileChunk):
-        add_file_chunk(self.connection, chunk)
-
-    def mark_chunk_received(self, chunk_id: str):
-        mark_file_chunk_received(self.connection, chunk_id)
-
-    def get_file_chunks(self, file_id: str):
-        return get_file_chunks(self.connection, file_id)
+    def fetch_conversation_history(self, peer_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        with get_connection(self.db_path) as conn:
+            return fetch_conversation_history(conn, peer_id, limit, offset)
+        
+    def get_all_known_peers(self) -> List[Dict[str,Any]]:
+        """Fetch all the know peers"""
+        with get_connection(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT peer_id, username, ip_address FROM peers")
+            return [dict(row) for row in cursor.fetchall()]
 
 
 # ==============================================================================
-# MAIN
+# MAIN PROTOTYPE TESTING RULE
 # ==============================================================================
 
 if __name__ == "__main__":
     initialize_database()
-    print("DATABASE INITIALIZED")
+    print("DATABASE INITIALIZED SUCCESSFULLY")
+    
+    # Simple validation test pass
+    mgr = DatabaseManager()
+    mgr.save_or_update_peer("test-uuid-1234", "Alice", "192.168.1.15")
+    mgr.log_message("test-uuid-1234", "Alice", "text", "Hello World Script Test!")
+    
+    print("Active Chats View Output:")
+    print(mgr.get_all_active_chats())

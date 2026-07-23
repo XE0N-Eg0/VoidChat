@@ -1,4 +1,4 @@
-#protocol/discovery.py
+# networking/discovery.py
 
 # ================ SYS IMPORTS ===========================
 import socket
@@ -19,11 +19,8 @@ from zeroconf import (
 # =========================================================
 
 SERVICE_TYPE = "_voidchat._tcp.local."
-
-DISCOVERY_PORT = 5000 #This will be fetched from setting later
-
-PEER_TIMEOUT = 15
-
+DISCOVERY_PORT = 5000 # This will be fetched from setting later
+PEER_TIMEOUT = 120  # Kept for potential future use, but no longer used for aggressive pruning
 
 # =========================================================
 # PEER REGISTRY
@@ -54,22 +51,10 @@ class PeerRegistry:
             }
 
     def cleanup_stale_peers(self):
-        while True:
-            time.sleep(5)
-
-            current_time = time.time()
-
-            with self.lock:
-                stale_peers = []
-
-                for peer_id, data in self.peers.items():
-                    elapsed = current_time - data["last_seen"]
-
-                    if elapsed > PEER_TIMEOUT:
-                        stale_peers.append(peer_id)
-
-                for peer_id in stale_peers:
-                    del self.peers[peer_id]
+        # Kept for structural compatibility, but no longer aggressively pruning
+        # mDNS remove_service handles explicit disconnects.
+        # TCP socket failure handles abrupt disconnects.
+        pass
 
 
 # =========================================================
@@ -77,28 +62,31 @@ class PeerRegistry:
 # =========================================================
 
 class VoidChatListener(ServiceListener):
-    def __init__(self, zeroconf, registry, self_peer_id):
+    def __init__(self, zeroconf, registry, self_peer_id, discovery_service):
         self.zeroconf = zeroconf
         self.registry = registry
         self.self_peer_id = self_peer_id
+        self.discovery_service = discovery_service
 
     def add_service(self, zc, type_, name):
         self._handle_service(name)
+        # Reactive advertisement when a new service is seen
+        self.discovery_service.refresh_advertisement()
 
     def update_service(self, zc, type_, name):
         self._handle_service(name)
 
     def remove_service(self, zc, type_, name):
-        peer_id = self._extract_peer_id(name)
-
-        if peer_id:
-            self.registry.remove_peer(peer_id)
+        # Parse peer_id from properties cache instead of fragile name splitting
+        info = self.zeroconf.get_service_info(SERVICE_TYPE, name)
+        if info:
+            properties = {k.decode(): v.decode() for k, v in info.properties.items()}
+            peer_id = properties.get("peer_id")
+            if peer_id:
+                self.registry.remove_peer(peer_id)
 
     def _handle_service(self, name):
-        info = self.zeroconf.get_service_info(
-            SERVICE_TYPE,
-            name
-        )
+        info = self.zeroconf.get_service_info(SERVICE_TYPE, name)
 
         if not info:
             return
@@ -119,7 +107,8 @@ class VoidChatListener(ServiceListener):
         if peer_id == self.self_peer_id:
             return
 
-        ip = socket.inet_ntoa(info.addresses[0])
+        # Explicitly cast to standard string to satisfy strict type checkers
+        ip = str(socket.inet_ntoa(info.addresses[0]))
 
         peer_data = {
             "peer_id": peer_id,
@@ -128,19 +117,7 @@ class VoidChatListener(ServiceListener):
             "port": info.port,
         }
 
-        self.registry.update_peer(
-            peer_id,
-            peer_data
-        )
-
-    def _extract_peer_id(self, service_name):
-        try:
-            name_part = service_name.split(".")[0]
-
-            return name_part.split("-")[-1]
-
-        except Exception:
-            return None
+        self.registry.update_peer(peer_id, peer_data)
 
 
 # =========================================================
@@ -148,16 +125,22 @@ class VoidChatListener(ServiceListener):
 # =========================================================
 
 class DiscoveryService:
-    def __init__(self, username): #(this will eventually take UUID, USERNAME)
+    # CHANGES: Accept peer_id from orchestrator instead of generating ephemeral
+    def __init__(self, username: str, peer_id: str):
         self.username = username
-
-        self.peer_id = str(uuid.uuid4())[:8] # from settings
-
+        self.peer_id = peer_id
+        
         self.local_ip = self.get_local_ip()
 
         self.registry = PeerRegistry()
 
-        self.zeroconf = Zeroconf()
+        # CHANGES: Explicitly bind Zeroconf to the local interface IP.
+        # This fixes Windows dropping mDNS packets on 0.0.0.0
+        self.zeroconf = Zeroconf(interfaces=[self.local_ip])
+        
+        # CHANGES: Cooldown state for reactive advertisement
+        self.last_advertisement = 0
+        self.advertisement_cooldown = 5  # 5 seconds to prevent storms
 
         self.service_name = (
             f"{self.username}-"
@@ -180,32 +163,63 @@ class DiscoveryService:
         self.listener = VoidChatListener(
             self.zeroconf,
             self.registry,
-            self.peer_id
+            self.peer_id,
+            self # CHANGES: Pass self for reactive ad callback
         )
 
         self.browser = None
-
         self.running = False
 
     # =====================================================
     # NETWORK
     # =====================================================
 
-    def get_local_ip(self):
+    def get_local_ip(self) -> str:
+        """
+        CHANGES: Pure standard library implementation to find the active LAN IP.
+        Ignores loopback, link-local, and common virtual machine adapters.
+        """
+        valid_ips = []
         
-        s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-
         try:
+            hostname = socket.gethostname()
+            # getaddrinfo returns tuples: (family, type, proto, canonname, sockaddr)
+            results = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            
+            for result in results:
+                sock_addr = result[4]
+                ip = sock_addr[0]
+                
+                # Ensure it's a string and skip loopback/link-local
+                if not isinstance(ip, str):
+                    continue
+                if ip.startswith("127.") or ip.startswith("169.254"):
+                    continue
+                    
+                valid_ips.append(ip)
+        except Exception:
+            pass
+            
+        # Filter out common virtual adapter IPs to find the real LAN IP
+        for ip in valid_ips:
+            # Heuristic: Virtual adapters often use specific subnets
+            if not (ip.startswith("192.168.56.") or   # VirtualBox
+                    ip.startswith("172.16.") or       # Docker/VMware
+                    ip.startswith("10.0.0.")):        # Sometimes VMs
+                return ip
+                
+        # Fallback to first valid IP found, or the UDP probe method
+        if valid_ips:
+            return valid_ips[0]
+            
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
-
-        except Exception:
-            ip = "127.0.0.1"
-
-        finally:
             s.close()
-
-        return ip
+            return ip
+        except Exception:
+            return "127.0.0.1"
 
     # =====================================================
     # SERVICE CONTROL
@@ -215,15 +229,7 @@ class DiscoveryService:
         if self.running:
             return
         
-        #debug 
-        # print(f"\n[INFO] Starting discovery...")
-        # print(f"[INFO] Username : {self.username}")
-        # print(f"[INFO] Peer ID  : {self.peer_id}")
-        # print(f"[INFO] Local IP : {self.local_ip}")
-
-        self.zeroconf.register_service(
-            self.service_info
-        )
+        self.zeroconf.register_service(self.service_info)
 
         self.browser = ServiceBrowser(
             self.zeroconf,
@@ -231,25 +237,22 @@ class DiscoveryService:
             self.listener
         )
 
-        threading.Thread(
-            target=self.registry.cleanup_stale_peers,
-            daemon=True
-        ).start()
+        # CHANGES: Removed the cleanup_stale_peers thread. 
+        # mDNS remove_service handles explicit disconnects. 
+        # For abrupt disconnects, the TCP socket failure will handle it.
 
         self.running = True
+        print(f"[DISCOVERY] Broadcasting as {self.username} ({self.peer_id[:8]}) on {self.local_ip}")
 
     def stop(self):
         if not self.running:
             return
         
-        #debug
-        # print("\n[INFO] Stopping discovery...")
-
-        self.zeroconf.unregister_service(
-            self.service_info
-        )
-
-        self.zeroconf.close()
+        try:
+            self.zeroconf.unregister_service(self.service_info)
+            self.zeroconf.close()
+        except Exception as e:
+            print(f"[DISCOVERY] Error during shutdown: {e}")
 
         self.running = False
 
@@ -260,50 +263,29 @@ class DiscoveryService:
     def get_peers(self):
         return self.registry.get_peers()
 
+    # CHANGES: Added on-demand discovery
+    def discover_now(self):
+        """Triggers a fresh discovery cycle by restarting the browser."""
+        if not self.running: return
+        if self.browser:
+            try:
+                self.browser.cancel()
+            except Exception:
+                pass
+        time.sleep(0.1)
+        self.browser = ServiceBrowser(self.zeroconf, SERVICE_TYPE, self.listener)
+        self.refresh_advertisement()
+        print("[DISCOVERY] On-demand discovery triggered.")
 
-# =========================================================
-# TESTING / DEBUG
-# =========================================================
-
-if __name__ == "__main__":
-
-    username = input("Username: ")
-
-    discovery = DiscoveryService(username)
-
-    discovery.start()
-
-    print("\n[INFO] Discovery running.")
-    print("[INFO] Press CTRL+C to exit.")
-
-    try:
-        while True:
-            time.sleep(5)
-
-            peers = discovery.get_peers()
-
-            print("\n========== DISCOVERED PEERS ==========")
-
-            if not peers:
-                print("No peers discovered.")
-
-            for peer_id, data in peers.items():
-
-                elapsed = round(
-                    time.time() - data["last_seen"],
-                    1
-                )
-
-                print(f"""
-Peer ID : {peer_id}
-Username: {data['username']}
-IP      : {data['ip']}
-Port    : {data['port']}
-LastSeen: {elapsed}s ago
-                """)
-
-    except KeyboardInterrupt:
-        pass
-
-    finally:
-        discovery.stop()
+    # CHANGES: Added reactive advertisement with cooldown
+    def refresh_advertisement(self):
+        """Re-broadcasts presence if cooldown has passed."""
+        current_time = time.time()
+        if current_time - self.last_advertisement > self.advertisement_cooldown:
+            self.last_advertisement = current_time
+            try:
+                # Re-registering forces a multicast announcement
+                self.zeroconf.unregister_service(self.service_info)
+                self.zeroconf.register_service(self.service_info)
+            except Exception:
+                pass

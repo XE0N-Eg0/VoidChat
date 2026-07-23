@@ -26,6 +26,7 @@ FRAME_VERSION = 1
 
 # Protocol tokens that travel across the wire network card
 CHANNEL_MAP = {
+    "control" : 0,
     "text": 1,
     "file": 2,
     "av": 3,
@@ -160,7 +161,14 @@ class TransportManager:
             raise ValueError(f"Unknown channel routing: {channel}")
 
         # Map channel string to your connection manager's expected Enum type
-        enum_type = ConnectionType.CHAT if channel == "text" else ConnectionType.FILE
+        if channel == "text":
+            enum_type = ConnectionType.CHAT
+        elif channel == "file":
+            enum_type = ConnectionType.FILE
+        elif channel == "control":
+            enum_type = ConnectionType.CONTROL
+        else:
+            raise ValueError(f"Unknown channel routing: {channel}")
 
         # Interrogate connection.py safely
         sock = self.connection_manager.open_data_channel(peer_ip, enum_type)
@@ -286,19 +294,26 @@ class TransportManager:
     # =====================================================
 
     def _cleanup_resources(self, peer_ip: str, channel_name: str, sock):
-
         thread_key = (peer_ip, channel_name)
         
         with self.thread_lock:
             if thread_key in self.receive_threads:
                 del self.receive_threads[thread_key]
 
+        # CHANGES: Also remove from ConnectionManager to prevent dead socket reuse
+        enum_map = {"text": ConnectionType.CHAT, "file": ConnectionType.FILE, "control": ConnectionType.CONTROL}
+        enum_type = enum_map.get(channel_name)
+        if enum_type:
+            with self.connection_manager.lock:
+                current_sock = self.connection_manager.connections[enum_type].get(peer_ip)
+                if current_sock is sock:
+                    self.connection_manager.connections[enum_type].pop(peer_ip, None)
+
         try:
-            sock.shutdown(2)  # SHUT_RDWR
+            sock.shutdown(2)
             sock.close()
         except Exception:
             pass
-
         print(f"[CLEANUP COMPLETE] System cleaned up all transport tracking metrics for {peer_ip} [{channel_name}]")
 
     def _recv_exact(self, sock, size: int) -> Optional[bytes]:

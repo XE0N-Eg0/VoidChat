@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoidChat - Setup</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+    <div class="login-container">
+        <h1 class="login-title">VOID CHAT</h1>
+        
+        <div class="login-panel">
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" id="aliasInput" class="form-input" placeholder="Enter your alias">
+            </div>
+            
+            <button class="btn btn-primary btn-block" onclick="submitSetup()">Start</button>
+        </div>
+    </div>
+
+    <script>
+        function submitSetup() {
+            const alias = document.getElementById('aliasInput').value.trim();
+            if(!alias) return alert('Alias cannot be empty');
+            
+            fetch('/setup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({alias: alias})
+            }).then(res => res.json()).then(data => {
+                if(data.success) window.location.href = '/';
+            });
+        }
+
+        document.getElementById('aliasInput').addEventListener('keydown', (e) => {
+            if(e.key === 'Enter') submitSetup();
+        });
+    </script>
+</body>
+</html>

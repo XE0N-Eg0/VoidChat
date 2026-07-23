@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoidChat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="app-wrapper">
+        <!-- Top Navigation Tabs -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
+            <button class="tab-btn" data-tab="chats" onclick="switchTab('chats')">Chats</button>
+            <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="tab-content">
+
+            <!-- Discovery Tab -->
+            <section id="discovery" class="tab-pane active">
+                <div class="list-header">
+                    <h3>Discovered Peers</h3>
+                    <button class="btn" onclick="fetchPeers()">Refresh</button>
+                </div>
+                <div class="list-container" id="discoveryList">
+                    <!-- Peers injected here -->
+                </div>
+            </section>
+
+            <!-- Chats Tab -->
+            <section id="chats" class="tab-pane">
+                <div class="chat-layout">
+                    <!-- Sidebar -->
+                    <div class="chat-sidebar" id="contactsList">
+                        <!-- Contacts injected here -->
+                    </div>
+                    
+                    <!-- Conversation -->
+                    <div class="chat-main">
+                        <div class="chat-header" id="chatHeader">Select a contact</div>
+                        
+                        <div class="chat-history" id="chatHistory">
+                            <div class="placeholder-text">Select a contact to start chatting</div>
+                        </div>
+                        
+                        <div class="chat-input-area" id="chatInputArea" style="display: none;">
+                            <input type="file" id="fileInput" style="display: none;" onchange="uploadFile()">
+                            <button class="btn btn-icon" title="Attach File" onclick="document.getElementById('fileInput').click()">📎</button>
+                            <input type="text" id="messageInput" placeholder="Enter your message..." onkeydown="if(event.key==='Enter') sendMessage()">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings" class="tab-pane">
+                <div class="settings-container">
+                    
+                    <div class="settings-section">
+                        <h3 class="settings-title">Profile</h3>
+                        <div class="settings-row">
+                            <label>Username</label>
+                            <input type="text" class="form-input" value="{{ username }}" disabled>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3 class="settings-title">Network</h3>
+                        <div class="settings-row">
+                            <label>Discovery Port</label>
+                            <input type="number" class="form-input" value="5000" disabled>
+                        </div>
+                        <div class="settings-row">
+                            <label>Chat Port</label>
+                            <input type="number" class="form-input" value="6000" disabled>
+                        </div>
+                        <div class="settings-row">
+                            <label>File Transfer Port</label>
+                            <input type="number" class="form-input" value="6001" disabled>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3 class="settings-title">About</h3>
+                        <div class="settings-row">
+                            <label>Node ID</label>
+                            <span class="settings-value">{{ peer_id[:16] }}...</span>
+                        </div>
+                        <div class="settings-row">
+                            <label>Backend Status</label>
+                            <span class="settings-value status-online">Operational</span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modal Dialog -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-card" id="modalCard"></div>
+    </div>
+
+    <script>
+        const localUsername = "{{ username }}";
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

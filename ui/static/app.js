@@ -19,6 +19,37 @@ function getAvatarColor(username) {
     return colors[Math.abs(hash) % colors.length];
 }
 
+function showNotification(message, isError = false) {
+    const notif = document.createElement('div');
+    notif.style.position = 'fixed';
+    notif.style.bottom = '20px';
+    notif.style.right = '20px';
+    notif.style.padding = '12px 20px';
+    notif.style.borderRadius = '8px';
+    notif.style.zIndex = '2000';
+    notif.style.fontSize = '14px';
+    notif.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    
+    if(isError) {
+        notif.style.background = '#fef0f0';
+        notif.style.color = '#f56c6c';
+        notif.style.border = '1px solid #fbc4c4';
+    } else {
+        notif.style.background = '#fdf6ec';
+        notif.style.color = '#e6a23c';
+        notif.style.border = '1px solid #f5dab1';
+    }
+    
+    notif.innerText = message;
+    document.body.appendChild(notif);
+    
+    setTimeout(() => {
+        notif.style.opacity = '0';
+        notif.style.transition = 'opacity 0.5s';
+        setTimeout(() => notif.remove(), 500);
+    }, 3000);
+}
+
 // --- API Calls ---
 async function fetchPeers() {
     const res = await fetch('/api/peers');
@@ -138,12 +169,12 @@ async function sendConnReq(ip, pid) {
         });
         const data = await res.json();
         if(data.success) {
-            alert('Connection request sent!');
+            showNotification("Connection request sent. Waiting for peer...");
         } else {
-            alert('Failed to connect: ' + (data.error || 'Peer unreachable'));
+            showNotification("Failed to connect: " + (data.error || 'Peer unreachable'), true);
         }
     } catch(err) {
-        alert('Network error while trying to connect.');
+        showNotification('Network error while trying to connect.', true);
     }
 }
 
@@ -167,10 +198,10 @@ async function uploadFile() {
         });
         const data = await res.json();
         if(!data.success) {
-            alert('File send failed: ' + (data.error || 'Unknown error'));
+            showNotification('File send failed: ' + (data.error || 'Unknown error'), true);
         }
     } catch(err) {
-        alert('Network error during file upload.');
+        showNotification('Network error during file upload.', true);
     }
     fileInput.value = '';
 }
@@ -200,6 +231,9 @@ evtSource.onmessage = function(e) {
     }
     else if(event.type === 'conn_req' || event.type === 'file_req') {
         showModal(event.type, event.data);
+    }
+    else if(event.type === 'conn_error') {
+        showNotification("Connection failed: " + event.data.error, true);
     }
 };
 
@@ -254,6 +288,5 @@ async function acceptFile(ip, sid) {
 }
 
 // --- Init ---
-// Poll every 10 seconds to stop log spam, rely mostly on SSE for instant updates
-setInterval(fetchPeers, 10000);
+setInterval(fetchPeers, 3000); // Poll every 3 seconds for snappy UI
 fetchPeers();

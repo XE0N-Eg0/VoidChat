@@ -87,6 +87,7 @@ class VoidChatOrchestrator:
         self.conn_mgr.start()
         self.transport_mgr.start()
         self.discovery.start()
+        
         threading.Thread(target=self._connection_manager_loop, daemon=True).start()
         print("[KERNEL] Core system operational. Sockets open and listening.")
 
@@ -228,7 +229,25 @@ class VoidChatOrchestrator:
             "channel": "control", "message_id": str(uuid.uuid4()),
             "chunk_index": 0, "total_chunks": 1, "payload": json.dumps(payload).encode("utf-8")
         }
-        self.transport_mgr.send_packetized_frame(peer_ip, packet)
+        
+        # FIX: Send asynchronously with 3 retries to bypass Windows Firewall initial blocks
+        def _async_send():
+            for attempt in range(3):
+                try:
+                    self.transport_mgr.send_packetized_frame(peer_ip, packet)
+                    return # Success
+                except Exception as e:
+                    print(f"[KERNEL] Send attempt {attempt+1} failed to {peer_ip}: {e}")
+                    time.sleep(1) # Wait 1 second before retrying
+            
+            # If all 3 attempts fail, notify the UI
+            if self.ui_event_callback:
+                self.ui_event_callback("conn_error", {
+                    "ip": peer_ip, 
+                    "error": "Peer unreachable or firewall blocked the connection."
+                })
+                    
+        threading.Thread(target=_async_send, daemon=True).start()
 
     def send_connection_request(self, peer_ip: str, peer_id: str):
         payload = {"type": "conn_req", "peer_id": self.peer_id, "username": self.username}

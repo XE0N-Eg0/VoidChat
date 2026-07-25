@@ -41,18 +41,6 @@ def select_peer(peers):
     except ValueError: pass
     return None, None, None
 
-def handle_event(event_type: str, data: dict) -> bool:
-    """Callback function to handle incoming requests from main.py"""
-    if event_type == "conn_req":
-        print(f"\n[INBOUND REQUEST] {data['username']} wants to connect. (y/n)")
-        resp = input(">> ").strip().lower()
-        return resp == 'y'
-    elif event_type == "file_req":
-        print(f"\n[INBOUND FILE] {data['username']} wants to send '{data['filename']}' ({data['size']} bytes). (y/n)")
-        resp = input(">> ").strip().lower()
-        return resp == 'y'
-    return False
-
 def main():
     # 1. Bootstrapping Identity
     user_config = load_user_identity()
@@ -63,9 +51,44 @@ def main():
         username=user_config["username"],
         peer_id=user_config["peer_id"]
     )
-    orchestrator.set_event_callback(handle_event)
     
-    # 3. Start Backend
+    # 3. Define the event callback using a closure so it can access the orchestrator
+    def handle_event(event_type: str, data: dict) -> bool:
+        """Callback function to handle incoming requests asynchronously"""
+        if event_type == "conn_req":
+            print(f"\n[INBOUND REQUEST] {data['username']} wants to connect. (y/n)")
+            resp = input(">> ").strip().lower()
+            if resp == 'y':
+                orchestrator.accept_connection_request(data['peer_id'], data['username'], data['ip'])
+                print("[CLI] Connection accepted.")
+            else:
+                print("[CLI] Connection rejected.")
+                
+        elif event_type == "file_req":
+            print(f"\n[INBOUND FILE] {data['username']} wants to send '{data['filename']}' ({data['size']} bytes). (y/n)")
+            resp = input(">> ").strip().lower()
+            if resp == 'y':
+                orchestrator.accept_file_request(data['ip'], data['session_id'])
+                print("[CLI] File accepted. Receiving...")
+            else:
+                print("[CLI] File rejected.")
+                
+        elif event_type == "text_received":
+            sender = data.get('data', {}).get('sender', 'Unknown')
+            payload = data.get('data', {}).get('payload', '')
+            print(f"\n[NEW MESSAGE] {sender}: {payload}")
+            
+        elif event_type == "file_received":
+            sender = data.get('data', {}).get('sender_name', 'Unknown')
+            filename = data.get('data', {}).get('payload', '')
+            print(f"\n[FILE RECEIVED] {sender} sent file: {filename}")
+
+        return False
+
+    # Register the callback
+    orchestrator.set_ui_event_callback(handle_event)
+    
+    # 4. Start Backend
     print("[CLI] Booting backend services...")
     orchestrator.start()
     
@@ -73,7 +96,7 @@ def main():
     print("[CLI] Waiting 3 seconds for peer discovery...")
     time.sleep(3)
 
-    # 4. CLI Loop
+    # 5. CLI Loop
     while True:
         print_menu()
         choice = input("Choose an option: ").strip()

@@ -1,253 +1,166 @@
-# VoidChat
 
-A modular peer-to-peer encrypted messaging and file transfer system built in Python.
+<div align="center">
 
-VoidChat is designed as a beginner-friendly but professionally structured systems project focusing on:
+#  VoidChat
 
-* P2P networking
-* End-to-end encrypted communication
-* Custom protocol design
-* Chunked file transfer
-* Modular architecture
-* Collaborative software development workflow
+**A Decentralized, Serverless, Peer-to-Peer (P2P) Mesh Messenger for Local Area Networks.**
 
----
+VoidChat operates without a central server, utilizing mDNS for peer discovery and raw TCP sockets for persistent, real-time encrypted communication and file sharing.
 
-# Features (Planned)
+*Status: 🚧 Under Passive Development (Alpha)*
 
-* LAN peer discovery
-* Secure encrypted messaging
-* Chunked file transfer
-* Custom packet protocol
-* AES-based encryption layer
-* SQLite local storage
-* Modular architecture
-* Team-based development workflow
+</div>
 
 ---
 
-# Project Architecture
-
-```text
-VoidChat/
-│
-├── networking/  # Socket communication and peer discovery   
-├── protocol/    # Packet creation, parsing, framing, chunking
-├── crypto/      # AES encryption and decryption
-├── database/    # For Database related things
-│
-├── src/
-│   └── main.py
-│
-├── .python-version
-├── pyproject.toml
-├── uv.lock
-├── .gitignore
-└── README.md
-```
+## 📖 Table of Contents
+- [Overview](#-overview)
+- [Engineering & Architecture](#-engineering--architecture)
+- [Current Features](#-current-features)
+- [Roadmap](#-roadmap)
+- [Installation](#-installation)
+- [Running the Application](#-running-the-application)
+- [Contributing](#-contributing)
+- [The Team](#-the-team)
 
 ---
 
-# Core Modules
+## 📖 Overview
 
-## Networking Layer
+VoidChat is designed to be a lightweight, secure, and serverless communication tool. Whether you are on a corporate LAN, a home network, or an offline ad-hoc network, VoidChat allows you to discover peers, establish friendships via consent workflows, and chat or share files directly. 
 
-Responsible for:
-
-* Peer discovery
-* TCP communication
-* Connection handling
-* Sending/receiving raw bytes
+By leveraging mDNS (Zeroconf) for discovery and a custom binary TCP framing protocol for transport, VoidChat bypasses the need for any intermediate servers, ensuring minimal latency and maximum privacy.
 
 ---
 
-## Protocol Layer
+## 🏗 Engineering & Architecture
 
-Responsible for:
+VoidChat is built on a strict, modular architecture. The UI acts purely as a presentation layer, while the `VoidChatOrchestrator` acts as the Application Kernel. 
 
-* Packet creation
-* Serialization/deserialization
-* Framing
-* File chunking
-* Message reconstruction
-
----
-
-## Crypto Layer
-
-Responsible for:
-
-* AES encryption
-* AES decryption
-* Nonce handling
-* Secure byte transformation
+- **Discovery Layer (`networking/discovery.py`)**: Uses `zeroconf` to broadcast and listen for peers on the LAN. Presence is decoupled from discovery—friend status is strictly determined by TCP connection health, preventing flaky mDNS from affecting the UX.
+- **Connection Layer (`networking/connection.py`)**: Manages isolated TCP listeners for Control (5001), Chat (6000), and File (6001) streams.
+- **Transport Layer (`networking/transport.py`)**: Handles binary framing (32-byte headers), packetization, and raw stream I/O. Differentiates between text and file metadata chunks.
+- **Crypto Layer (`crypto/`)**: Implements AES-GCM authenticated encryption for both text payloads and streaming file chunks.
+- **Parsing/Protocol Layer (`protocol/`)**: Manages serialization, deserialization, and chunk reassembly.
+- **Persistence Layer (`database/core.py`)**: A thread-safe SQLite wrapper handling local message history and known peer metadata.
+- **Presentation Layer (`src/app.py` & `ui/`)**: A Flask web frontend using Server-Sent Events (SSE) to push real-time backend events to a minimal, wireframe-inspired UI.
 
 ---
 
-## Database Layer
+##  Current Features
 
-Responsible for:
-
-* SQLite database management
-* Message persistence
-* Peer metadata
-* File transfer metadata
-
----
-
-# Tech Stack
-
-| Component           | Technology     |
-| ------------------- | -------------- |
-| Language            | Python 3.10    |
-| Environment Manager | uv             |
-| Encryption          | cryptography   |
-| Database            | SQLite         |
-| Networking          | Python sockets |
-| Version Control     | Git + GitHub   |
+-  **Serverless Discovery:** Automatic LAN peer discovery via mDNS.
+-  **Consent-based Friendships:** Send and receive connection requests. Peers cannot message you without mutual consent.
+-  **End-to-End Encryption:** All text messages and file chunks are encrypted using AES-GCM.
+-  **Secure File Transfers:** Stream large files over isolated TCP sockets with strict pre-approval consent workflows.
+-  **Local Persistence:** Chat histories and peer metadata are stored safely in a local SQLite database.
+-  **Modern Web UI:** A clean, distraction-free web interface that automatically launches in your default browser.
 
 ---
 
-# Team Workflow
+## 🗺 Roadmap
 
-This project follows a collaborative Git workflow.
+VoidChat is actively being developed. Future milestones include:
 
+-  **Internet Routing:** Extending P2P capabilities beyond the LAN using NAT traversal (UDP hole punching) and WebRTC signaling.
+-  **Voice & Video:** Real-time audio/video streaming using P2P WebRTC.
+-  **Asymmetric Key Exchange:** Implementing ECDH (Elliptic Curve Diffie-Hellman) for perfect forward secrecy during key exchange.
+-  **Portable Desktop App:** Packaging VoidChat as a standalone executable (`.exe` / `.AppImage`) using PyInstaller.
 
+*Want to suggest a feature? Open an [Issue](https://github.com/XE0N-Eg0/VoidChat/issues) or start a Discussion!*
 
-# Setup Instructions
+---
 
-## 1. Clone Repository
+## 💾 Installation
 
+VoidChat requires **Python 3.10+**. 
+
+### Option A: Standard Python (`pip`)
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/XE0N-Eg0/VoidChat.git
+   cd VoidChat
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   # Windows
+   python -m venv .venv
+   .venv\Scripts\activate
+
+   # Linux/macOS
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Option B: Using `uv` (Recommended for speed)
+If you use [`uv`](https://github.com/astral-sh/uv) for Python package management:
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/XE0N-Eg0/VoidChat.git
+   cd VoidChat
+   ```
+2. Synchronize the environment:
+   ```bash
+   uv sync
+   ```
+
+---
+
+##  Running the Application
+
+### Manual Launch (Command Line)
+
+**To run the Web UI:**
 ```bash
-git clone <repo-url>
-cd VoidChat
+# Using standard python
+python src/app.py
+
+# Using uv
+uv run src/app.py
 ```
 
----
-
-## 2. Install uv
-
-Official Website:
-
-[uv Documentation](https://docs.astral.sh/uv/?utm_source=chatgpt.com)
-
----
-
-## 3. Sync Environment
-
+**To run the CLI testing environment:**
 ```bash
-uv sync
-```
+# Using standard python
+python src/run_cli.py
 
-This automatically:
-
-* Creates virtual environment
-* Installs dependencies
-* Uses correct Python version
-
----
-
-## 4. Activate Virtual Environment
-
-### Windows
-
-```bash
-.venv\Scripts\activate
-```
-
-### Linux/macOS
-
-```bash
-source .venv/bin/activate
+# Using uv
+uv run src/run_cli.py
 ```
 
 ---
 
-# Git Workflow
+##  Contributing
 
-## Pull Latest Changes
+We welcome contributions from the community! Whether it's a bug fix, a new feature, or improvements to the documentation, your help is appreciated.
 
-```bash
-git pull origin main
-```
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
----
-
-## Commit Changes
-
-```bash
-git add .
-git commit -m "Add meaningful commit message"
-```
+Please ensure your code adheres to the existing architectural boundaries (e.g., the UI should never touch networking sockets directly).
 
 ---
 
-## Push Changes
+##  The Team
 
-```bash
-git push origin branch name
-```
-
----
-
-## Open Pull Request
-
-After pushing:
-
-* Open PR on GitHub
-* Review changes
-
----
-
-# Development Guidelines
-
-* Keep modules independent
-* Follow defined interfaces
-* Write small commits
-* Avoid pushing broken code
-* Keep functions simple and modular
-* Document important architectural decisions
-
----
-
-# Current Development Stage
-
-Initial architecture and repository setup.
-
-Planned first milestone:
-
-* LAN peer discovery
-* TCP messaging
-* Packet framing
-* AES encryption
-* Basic CLI communication
-
----
-
-# Team Members
+Meet the engineers behind VoidChat:
 
 | Member            | Responsibility                        |
 | ----------------- | ------------------------------------- |
-| Raghunath Das     | System Architecture                   |
-| Raghunath Das     | Networking Layer                      |
-| Partha Paul       | Parsing Layer                         |
-| Harshita Aggarwal | Crypto Layer                          |
-| Tarunjit Biswas   | Database                              |
+| **Raghunath Das** | System Architecture & Networking Layer|
+| **Partha Paul**   | Parsing Layer                         |
+| **Harshita Aggarwal** | Crypto Layer                      |
+| **Tarunjit Biswas**| Database                             |
 
 ---
 
-# License
-
-MIT License
-
----
-
-# Vision
-
-VoidChat is being developed as a learning-oriented systems project focused on understanding:
-
-* Networking fundamentals
-* Protocol engineering
-* Secure communication systems
-* Collaborative software development
-* Modular software architecture
+<div align="center">
+  <sub>Built with ❤️ by the VoidChat Team. </sub>
+</div>

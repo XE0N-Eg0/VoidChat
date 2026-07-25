@@ -15,18 +15,17 @@ import tempfile
 import webbrowser
 from typing import Optional, Dict, Any
 
-# ── Path bootstrap ──────────────────────────────────────────────
-# We are in src/, so the project root is one directory up.
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, _ROOT)
 
 from flask import Flask, render_template, request, jsonify, Response, send_from_directory
 from src.main import VoidChatOrchestrator
 
-# Point Flask to the templates/static folders inside the ui/ directory
 _TEMPLATE_DIR = os.path.join(_ROOT, "ui", "templates")
 _STATIC_DIR = os.path.join(_ROOT, "ui", "static")
 
+# ================ FLASK APP ==========================
 app = Flask(__name__, template_folder=_TEMPLATE_DIR, static_folder=_STATIC_DIR)
 
 class State:
@@ -36,6 +35,8 @@ class State:
         self.event_queue: queue.Queue = queue.Queue()
 
 state = State()
+
+# CONFIG LOADING 
 
 def load_user_config() -> Optional[dict]:
     data_dir = os.path.join(_ROOT, "data")
@@ -48,6 +49,7 @@ def load_user_config() -> Optional[dict]:
             return None
     return None
 
+# START THE KERNEL 
 def init_backend(config: dict):
     state.user_config = config
     if not state.orchestrator:
@@ -62,6 +64,7 @@ def ui_event_callback(event_type: str, data: dict) -> bool:
     state.event_queue.put((event_type, data))
     return False
 
+# 
 @app.route("/")
 def index():
     config = load_user_config()

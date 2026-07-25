@@ -101,20 +101,18 @@ class ConnectionManager:
         port_map = {ConnectionType.CONTROL: 5001, ConnectionType.CHAT: 6000, ConnectionType.FILE: 6001}
         
         with self.lock:
-            # If it's already open, reuse it
             if peer_ip in self.connections[conn_type]:
                 return self.connections[conn_type][peer_ip]
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)  # Timeout only for the initial connection attempt
+            sock.settimeout(3.0)  # FIX: Reduced from 10 to 3 seconds for faster failure
             sock.connect((peer_ip, port_map[conn_type]))
             sock.settimeout(None)  # Clear timeout so the receiver loop can block forever
             
             with self.lock:
                 self.connections[conn_type][peer_ip] = sock
             
-            # Instantly attach transport layer reading logic to it
             self._notify_handlers(peer_ip, conn_type, sock)
             return sock
         except Exception as e:
